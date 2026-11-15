@@ -1,17 +1,18 @@
-// Gira dentro l'editor: fa ciò che fa lo studente sulla pagina del flowchart (gli scenari S-E3a…d) e scrive che cosa ha visto.
-// Non giudica nulla: i confronti stanno in `prova.ts`. La pagina si legge dal suo DOM con i comandi di prova dell'estensione, che
-// esistono solo con ALGO_PROVA=1; i clic sono clic veri sugli elementi della pagina.
+// Gira dentro l'editor: fa ciò che fa lo studente sulla pagina del flowchart (gli scenari S-E3a…d e S-E11) e scrive che cosa ha
+// visto. Non giudica nulla: i confronti stanno in `prova.ts`. La pagina si legge dal suo DOM con i comandi di prova dell'estensione,
+// che esistono solo con ALGO_PROVA=1; i clic sono clic veri sugli elementi della pagina, i tasti arrivano ai suoi gestori.
 
 const { readFileSync, renameSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
 const vscode = require("vscode");
 
-const { ALGO_FILE, ALGO_ERRATO, ALGO_USCITA } = process.env;
+const { ALGO_FILE, ALGO_ERRATO, ALGO_FUNZIONI, ALGO_USCITA } = process.env;
 const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** La fotografia della pagina attiva (con un clic prima, se c'è il selettore); null se la pagina non risponde. */
-async function foto(selettore) {
+/** La fotografia della pagina attiva (con un clic prima, o un tasto, se c'è il selettore); null se la pagina non risponde. */
+async function foto(selettore, tasto) {
   try {
-    return (await vscode.commands.executeCommand("algo.prova.fotografia", selettore)).fotografia;
+    return (await vscode.commands.executeCommand("algo.prova.fotografia", selettore, tasto)).fotografia;
   } catch {
     return null;
   }
@@ -134,6 +135,74 @@ exports.run = async () => {
   salvaComeAlgoDesign(ALGO_FILE, originale);
   esiti.rimesso = (await aspetta((f) => f.titolo === "lettura-intero", 3000)).f;
   esiti.fileIntatto = readFileSync(ALGO_FILE, "utf8") === originale;
+
+  // --- E11, il disegno. Il flowchart con l'errore, mai toccato nella vista: adattato, metà larghezza, il riquadro aperto.
+  const e11 = (esiti.e11 = {});
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  e11.errato = await apri(ALGO_ERRATO);
+  // Dal bollino alla voce, col clic e con Invio; dalla voce al blocco.
+  e11.dalBollino = await foto("#disegno g[data-bollino]");
+  e11.dalBollinoConInvio = await foto("#disegno g[data-bollino]", { tasto: "Enter" });
+  await foto(".voce[data-funzione]");
+  e11.dallaVoce = (await aspetta((f) => f.disegno.evidenziato !== null && f.disegno.staNelFoglio, 3000)).f;
+  // Il riquadro che si chiude: il codice a tutta larghezza, le segnalazioni sopra; il clic su una voce lo riapre sul blocco.
+  e11.chiuso = await foto("#riquadro");
+  await foto(".voce[data-funzione]");
+  e11.riapertoDallaVoce = (await aspetta((f) => !f.disegno.chiuso && f.disegno.evidenziato !== null, 3000)).f;
+  // Il divisore con la tastiera: un passo a destra.
+  e11.divisore = await foto("#divisore", { tasto: "ArrowRight" });
+  // La misura fissa della conformità: l'SVG della pagina si confronta coi byte del pacchetto fuori dall'editor.
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: true, carattere: null });
+  e11.fissaErrato = (await aspetta((f) => f.disegno.carattere === null && f.disegno.svg !== null, 3000)).f;
+  // Controllo positivo: un carattere che il canvas ignora (una virgoletta non chiusa) non disegna, e lo dice.
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: '"non chiuso' });
+  e11.carattereIgnorato = (await aspetta((f) => f.disegno.svg === null, 3000)).f;
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null });
+  e11.carattereRimesso = (await aspetta((f) => f.disegno.svg !== null, 3000)).f;
+
+  // Il flowchart con più funzioni, mai aperto: il divisore dell'ultimo, lo zoom adattato.
+  e11.funzioni = await apri(ALGO_FUNZIONI);
+  // Ogni scheda, nelle due lingue, con la misura fissa.
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: true, carattere: null });
+  e11.fisse = [];
+  for (const [i, lingua] of ["it", "en"].entries()) {
+    const ora = await foto();
+    if (!ora?.lingue[i]?.attivo) await clic(`[data-scelta="${lingua}"]`);
+    for (const f of e11.funzioni?.disegno ? ["f1", "f2", "f3", "f4", "f5", "f6"] : []) {
+      if ((await foto(`[role=tab][data-funzione="${f}"]`)) === null) continue;
+      const dopo = await foto();
+      e11.fisse.push({ lingua, funzione: f, svg: dopo?.disegno.svg ?? null, attiva: dopo?.funzioni.find((x) => x.attiva)?.nome ?? null });
+    }
+  }
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null });
+  await foto('[role=tab][data-funzione="f1"]');
+  e11.primaDelloZoom = await foto();
+  // Lo zoom: Ingrandisci, Torna al 100%, Riduci, Adatta alla finestra, Torna indietro.
+  e11.zoom = [];
+  for (const sel of ["#zoom-ingrandisci", "#zoom-percento", "#zoom-riduci", "#zoom-adatta", "#zoom-adatta"]) {
+    await foto(sel);
+    const f = await foto();
+    e11.zoom.push({ comando: sel, scala: f?.disegno.scala, adattata: f?.disegno.adattata, sta: f?.disegno.staNelFoglio, nomi: f?.disegno.zoom });
+  }
+  e11.divisoreFunzioni = await foto("#divisore", { tasto: "ArrowRight" });
+  await pausa(300);
+  // Riaperti tutti e due: ciascuno con la sua vista.
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  e11.erratoRiaperto = await apri(ALGO_ERRATO);
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  e11.funzioniRiaperto = await apri(ALGO_FUNZIONI);
+
+  // Controllo positivo del pacchetto nella pagina: un byte in più nel file del nucleo dell'estensione, la pagina riaperta non lo
+  // esegue (l'impronta non torna); rimesso il file, sì.
+  const libreria = join(vscode.extensions.getExtension("gilan65.algodesign-code").extensionPath, "dist", "libreria.cjs");
+  const byte = readFileSync(libreria);
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  writeFileSync(libreria, Buffer.concat([byte, Buffer.from("\n")]));
+  e11.nucleoMutato = await apri(ALGO_FILE);
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  writeFileSync(libreria, byte);
+  e11.nucleoRimesso = await apri(ALGO_FILE);
+  e11.nucleoIntatto = Buffer.compare(readFileSync(libreria), byte) === 0;
 
   writeFileSync(ALGO_USCITA, JSON.stringify(esiti));
 };

@@ -28,6 +28,8 @@ try {
     format: "cjs",
     minify: { whitespace: true },
     external: ["vscode", "*libreria.cjs"],
+    // L'impronta dichiarata del nucleo: la pagina chiede al browser di eseguire il file solo se ha questa.
+    define: { IMPRONTA_DEL_NUCLEO: JSON.stringify(IMPRONTA_DEL_NUCLEO) },
   });
   // La pagina: un modulo per il browser, senza import (tutto dentro), e il suo foglio di stile.
   await Bun.build({

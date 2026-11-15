@@ -23,7 +23,9 @@ export function activate(contesto: vscode.ExtensionContext): void {
   );
   if (process.env["ALGO_PROVA"] === "1")
     contesto.subscriptions.push(
-      vscode.commands.registerCommand("algo.prova.fotografia", (selettore?: string) => pagina.fotografia(selettore)),
+      vscode.commands.registerCommand("algo.prova.fotografia", (selettore?: string, tasto?: { tasto: string; maiuscolo?: boolean }) => pagina.fotografia(selettore, tasto)),
+      vscode.commands.registerCommand("algo.prova.misura", () => pagina.misura()),
+      vscode.commands.registerCommand("algo.prova.disegno", (p: { misuraFissa: boolean; carattere: string | null }) => pagina.prova(p)),
       vscode.commands.registerCommand("algo.prova.osservatore", (acceso: boolean) => {
         pagina.osservatoreAcceso = acceso;
       }),

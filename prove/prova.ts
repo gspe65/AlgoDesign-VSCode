@@ -18,8 +18,12 @@
 //   vero chiuso dalla X);
 // - che un file aperto una volta come testo resti testo: nell'editor vero succede, in modalità di prova no (misurato: il
 //   controllo positivo non si accende), quindi la prova sta nella misura con l'editor vero, non qui;
-// - l'aspetto della pagina (colori dei comandi, spaziature, contrasto) e la lettura dello schermo: il giro col valutatore;
-// - il disegno, che arriverà in una versione successiva: qui c'è il suo posto;
+// - l'aspetto della pagina (colori dei comandi, spaziature, contrasto) e ciò che la lettura dello schermo pronuncia davvero (qui
+//   solo i nomi scritti nel DOM): il giro col valutatore;
+// - il disegno con la misura VERA confrontato coi byte del nucleo: dipende dai caratteri della macchina; si confronta con la misura
+//   fissa della conformità, e della misura vera si prova che il canvas tiene il carattere chiesto;
+// - i gesti del puntatore sul divisore (il trascinamento): si provano i tasti, che passano dallo stesso codice del valore;
+// - l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione ne ha due);
 // - la condizione del comando «Apri come testo» nella palette: si usa il pulsante della pagina;
 // - un editor diverso da quello dato con `--editor`; il primo piano del sistema.
 
@@ -39,8 +43,8 @@ const { values: opzioni } = parseArgs({
 
 /** I denominatori, dichiarati prima della corsa: le chiamate a `prova` senza editor, e quelle in più con l'editor. */
 const PROVE_SENZA_EDITOR = 25;
-const PROVE_DELL_EDITOR = 23;
-const TEST_ATTESI = 22;
+const PROVE_DELL_EDITOR = 36;
+const TEST_ATTESI = 29;
 
 /** Ciò che il pacchetto contiene, e nient'altro. */
 const NEL_PACCHETTO = ["[Content_Types].xml", "extension.vsixmanifest", "extension/LICENSE.txt", "extension/LICENZA-ALGODESIGN.txt", "extension/dist/extension.cjs", "extension/dist/libreria.cjs", "extension/dist/pagina.js", "extension/dist/pagina.css", "extension/icona.png", "extension/package.json", "extension/readme.md"];
@@ -59,6 +63,8 @@ const VIETATE = [/bun:/, /Bun\./];
 /** I due file veri del corpus di AlgoDesign degli scenari S-E3: uno che genera, uno che non genera (una segnalazione). */
 const FILE = "tappa-1/lettura-intero";
 const ERRATO = "tappa-2/per-passo-zero";
+/** Un file vero con più funzioni (S-E11: una scheda per funzione). */
+const FUNZIONI = "tappa-3/copia-di-un-vettore";
 
 if (!existsSync(FILE_DEL_NUCLEO) || !existsSync(join(SORGENTI, ".git"))) fermo("manca il nucleo: prima bun run nucleo");
 if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== IMPRONTA_DEL_NUCLEO) fermo("il file del nucleo non ha l'impronta di nucleo.json: si rifà bun run nucleo");
@@ -298,14 +304,17 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const fileErrato = join(dove, "per-passo-zero.algo");
   const originale = readFileSync(join(casi, ...`${FILE}.algo`.split("/")));
   const originaleErrato = readFileSync(join(casi, ...`${ERRATO}.algo`.split("/")));
+  const fileFunzioni = join(dove, "copia-di-un-vettore.algo");
+  const originaleFunzioni = readFileSync(join(casi, ...`${FUNZIONI}.algo`.split("/")));
   writeFileSync(fileAlgo, originale);
   writeFileSync(fileErrato, originaleErrato);
+  writeFileSync(fileFunzioni, originaleFunzioni);
 
   const uscita = join(cartella, "esiti.json");
   const dati = join(cartella, "dati  editor");
   console.log(`APRO L'EDITOR: ${eseguibile}, una finestra per pochi secondi, con un profilo temporaneo`);
   const inizio = performance.now();
-  const ambiente = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_ERRATO: fileErrato, ALGO_USCITA: uscita });
+  const ambiente = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_ERRATO: fileErrato, ALGO_FUNZIONI: fileFunzioni, ALGO_USCITA: uscita });
   const figlio = Bun.spawn([node, join(RADICE, "prove", "lancia.cjs"), eseguibile, join(estratto, "extension"), dove, dati, ambiente], { cwd: cartella, stdout: "pipe", stderr: "pipe" });
   const [fuori, errori] = await Promise.all([new Response(figlio.stdout).text(), new Response(figlio.stderr).text()]);
   const codiceUscita = await figlio.exited;
@@ -341,6 +350,28 @@ async function nellEditor(eseguibile: string): Promise<void> {
     senzaOsservatore: Attesa;
     rimesso: Fotografia | null;
     fileIntatto: boolean;
+    e11: {
+      errato: Fotografia | null;
+      dalBollino: Fotografia | null;
+      dalBollinoConInvio: Fotografia | null;
+      dallaVoce: Fotografia | null;
+      chiuso: Fotografia | null;
+      riapertoDallaVoce: Fotografia | null;
+      divisore: Fotografia | null;
+      fissaErrato: Fotografia | null;
+      carattereIgnorato: Fotografia | null;
+      carattereRimesso: Fotografia | null;
+      funzioni: Fotografia | null;
+      fisse: { lingua: "it" | "en"; funzione: string; svg: string | null; attiva: string | null }[];
+      primaDelloZoom: Fotografia | null;
+      zoom: { comando: string; scala?: number; adattata?: boolean; sta?: boolean; nomi?: { nome: string; testo: string }[] }[];
+      divisoreFunzioni: Fotografia | null;
+      erratoRiaperto: Fotografia | null;
+      funzioniRiaperto: Fotografia | null;
+      nucleoMutato: Fotografia | null;
+      nucleoRimesso: Fotografia | null;
+      nucleoIntatto: boolean;
+    };
   };
   // L'interfaccia nella lingua dell'editor (partito con --locale it): gli attesi la seguono.
   const interfaccia = e.lingua.toLowerCase().startsWith("it") ? "it" : "en";
@@ -376,10 +407,17 @@ async function nellEditor(eseguibile: string): Promise<void> {
   prova("S-E3c: nessun id interno sullo schermo (b1, f1, invalid_step, il numero del codice)", interniSulloSchermo(e.errato?.testoVisibile ?? "b1").length === 0, interniSulloSchermo(e.errato?.testoVisibile ?? "").join(", "));
   prova("controllo positivo: un b1 e un invalid_step nel testo visibile si vedono", interniSulloSchermo(`${e.errato?.testoVisibile ?? ""} b1 invalid_step`).join() === "b1,invalid_step");
   const segnalatoAtteso = testi.bloccoSegnalato.replace("{dove}", mErr.segnalazioni[0]?.dove ?? "?");
-  prova("S-E3c: il clic sulla segnalazione porta alla scheda della sua funzione e al posto del disegno, che mostra il blocco segnalato", e.dopoIlClic?.fuoco === "disegno" && e.dopoIlClic.funzioni.filter((f) => f.attiva).map((f) => f.nome).join() === testi.principale && e.dopoIlClic.testoVisibile.includes(segnalatoAtteso) && !(e.errato?.testoVisibile ?? segnalatoAtteso).includes(segnalatoAtteso), JSON.stringify([e.dopoIlClic?.fuoco, e.dopoIlClic?.funzioni, segnalatoAtteso]));
+  const bloccoAtteso = mErr.segnalazioni[0]?.blocco ?? "?";
+  prova("S-E3c: il clic sulla segnalazione porta alla scheda della sua funzione e al disegno, col blocco segnalato evidenziato e in vista, e lo annuncia", e.dopoIlClic?.fuoco === "disegno" && e.dopoIlClic.funzioni.filter((f) => f.attiva).map((f) => f.nome).join() === testi.principale && e.dopoIlClic.disegno.evidenziato === bloccoAtteso && e.dopoIlClic.disegno.evidenziatoInVista && e.dopoIlClic.testoVisibile.includes(segnalatoAtteso) && e.errato?.disegno.evidenziato === null && !(e.errato?.testoVisibile ?? segnalatoAtteso).includes(segnalatoAtteso), JSON.stringify([e.dopoIlClic?.fuoco, e.dopoIlClic?.funzioni, e.dopoIlClic?.disegno.evidenziato, e.dopoIlClic?.disegno.evidenziatoInVista, segnalatoAtteso]));
   prova("«Problemi»: la segnalazione intera, come errore; nessuna voce per il file che genera", e.problemiErrato.length === 1 && e.problemiErrato[0]?.messaggio === `${mErr.segnalazioni[0]?.testo} ${mErr.segnalazioni[0]?.spiegazione}` && e.problemiErrato[0]?.gravita === 0 && e.problemiFile === 0, JSON.stringify(e.problemiErrato));
 
-  prova("S-E3d: sulla pagina nessun elemento modificabile; digitando non cambia nulla, nemmeno il file", e.dopoLaDigitazione?.editabili === 0 && e.dopoLaDigitazione.testoVisibile === e.dopoIlClic?.testoVisibile && e.erratoIntatto && e.sporchiDopoLaDigitazione.length === 0, JSON.stringify({ editabili: e.dopoLaDigitazione?.editabili, sporchi: e.sporchiDopoLaDigitazione, errore: e.digitazioneSullaPagina }));
+  /** Dove due testi cominciano a essere diversi, coi due pezzi da lì. */
+  const divergenza = (a = "", b = "") => {
+    let i = 0;
+    while (i < a.length && a[i] === b[i]) i++;
+    return i === a.length && i === b.length ? "uguali" : `dal carattere ${i}: «${a.slice(Math.max(0, i - 20), i + 40)}» / «${b.slice(Math.max(0, i - 20), i + 40)}»`;
+  };
+  prova("S-E3d: sulla pagina nessun elemento modificabile; digitando non cambia nulla, nemmeno il file", e.dopoLaDigitazione?.editabili === 0 && e.dopoLaDigitazione.testoVisibile === e.dopoIlClic?.testoVisibile && e.erratoIntatto && e.sporchiDopoLaDigitazione.length === 0, JSON.stringify({ editabili: e.dopoLaDigitazione?.editabili, sporchi: e.sporchiDopoLaDigitazione, errore: e.digitazioneSullaPagina, testo: divergenza(e.dopoIlClic?.testoVisibile, e.dopoLaDigitazione?.testoVisibile) }));
   prova("S-E3d: «Apri come testo» apre il JSON del file in una vista di sola lettura, che digitando non cambia", e.comeTesto.tipo === "testo" && e.schemaDelTesto === "algo-testo" && e.idLinguaggioDelTesto === "json" && e.testoAperto === originaleErrato.toString("utf8") && e.vistaInvariata, `${e.comeTesto.tipo} ${e.schemaDelTesto} ${e.idLinguaggioDelTesto} invariata ${e.vistaInvariata}`);
   prova("controllo positivo: la stessa digitazione su un documento vero lo cambia", e.controlloDigitazione);
 
@@ -390,6 +428,60 @@ async function nellEditor(eseguibile: string): Promise<void> {
   prova("riacceso l'osservatore e rimesso il file, la pagina torna quella di prima", e.rimesso?.titolo === m0.titolo && e.fileIntatto);
   prova("i file non sono rimasti alterati", Buffer.compare(readFileSync(fileAlgo), originale) === 0 && Buffer.compare(readFileSync(fileErrato), originaleErrato) === 0);
   prova("nessun download dell'editor", !existsSync(join(RADICE, ".vscode-test")) && !existsSync(join(cartella, ".vscode-test")), readdirSync(cartella).join(", "));
+
+  // --- S-E11, il disegno nella pagina.
+  const k = e.e11;
+  const d0 = k.errato?.disegno;
+  const integrita = `sha256-${Buffer.from(IMPRONTA_DEL_NUCLEO, "hex").toString("base64")}`;
+  console.log(`E11: nucleo ${d0?.nucleo}, integrità ${d0?.integrita.slice(0, 20)}…; carattere ${JSON.stringify(d0?.carattere)}; disegno ${d0?.larghezza}×${d0?.altezza} scala ${d0?.scala}; bollini ${d0?.bollini.length}`);
+  prova("E11: la pagina esegue il file del nucleo con l'impronta dichiarata in nucleo.json", d0?.nucleo === "caricato" && d0.integrita === integrita, `${d0?.nucleo} ${d0?.integrita} / ${integrita}`);
+  const nm = k.nucleoMutato?.disegno;
+  prova("controllo positivo: un byte in più nel file del nucleo, la pagina non lo esegue e lo dice; rimesso il file, sì", nm?.nucleo === "assente" && nm.frase === testi.nucleoAssente && nm.svg === null && k.nucleoRimesso?.disegno.nucleo === "caricato" && k.nucleoRimesso.disegno.svg !== null && k.nucleoIntatto, JSON.stringify([nm?.nucleo, nm?.frase, k.nucleoRimesso?.disegno.nucleo, k.nucleoIntatto]));
+  const chiesto = "15px system-ui, sans-serif";
+  prova("E11: la misura col canvas, dopo i caratteri pronti: il carattere riletto è quello chiesto", d0?.carattere?.chiesto === chiesto && d0.carattere.riletto === chiesto && d0.svg !== null && k.carattereRimesso?.disegno.carattere?.riletto === chiesto, JSON.stringify(d0?.carattere));
+  const ci = k.carattereIgnorato?.disegno;
+  prova("controllo positivo: un carattere che il canvas ignora non disegna, e la pagina lo dice", ci?.svg === null && ci.frase === testi.carattereIgnorato.replace("{carattere}", '"non chiuso') && ci.carattere !== null && ci.carattere.riletto !== ci.carattere.chiesto && k.carattereRimesso?.disegno.svg !== null, JSON.stringify([ci?.frase, ci?.carattere]));
+
+  // Con la misura fissa l'SVG della pagina contro quello del file del nucleo fuori dall'editor: ogni funzione, nelle due lingue.
+  const nucleoFuori = libreria as unknown as Libreria & { controlla(p: unknown): unknown; disegna(p: unknown, f: string, l: "it" | "en", m: (t: string, s?: string) => number, c: string, o: unknown): { svg: string } };
+  const fissa = (t: string, stile?: string) => t.length * 7 + (stile === "grassetto" ? t.length : stile === "corsivo" ? t.length / 2 : 0);
+  const svgAtteso = (testo: Buffer, funzione: string, lingua: "it" | "en") => {
+    const a = nucleoFuori.apri(testo.toString("utf8"));
+    if (!a.ok) return "non si apre";
+    return nucleoFuori.disegna(a.progetto, funzione, lingua, fissa, "system-ui, sans-serif", { errori: nucleoFuori.controlla(a.progetto) }).svg;
+  };
+  const aFunzioni = nucleoFuori.apri(originaleFunzioni.toString("utf8"));
+  const funzioniAttese = aFunzioni.ok ? aFunzioni.progetto.functions.map((f) => f.id) : [];
+  const diverse = k.fisse.filter((x) => x.svg !== svgAtteso(originaleFunzioni, x.funzione, x.lingua)).map((x) => `${x.funzione} ${x.lingua}`);
+  if (k.fissaErrato?.disegno.svg !== svgAtteso(originaleErrato, "f1", "it")) diverse.push("per-passo-zero f1 it");
+  const schedeViste = [...new Set(k.fisse.map((x) => x.funzione))];
+  console.log(`S-E11: ${k.fisse.length + 1} disegni con la misura fissa (funzioni ${schedeViste.join(", ")}, attese ${funzioniAttese.join(", ")}), diversi ${diverse.length}`);
+  // Il confronto sa dire «diverso»: lo stesso disegno nelle due lingue non è uguale.
+  const distingue = svgAtteso(originaleFunzioni, "f1", "it") !== svgAtteso(originaleFunzioni, "f1", "en");
+  prova("S-E11: con la misura fissa l'SVG della pagina è byte per byte quello del nucleo, per ogni scheda nelle due lingue", distingue && diverse.length === 0 && funzioniAttese.length >= 2 && schedeViste.join() === funzioniAttese.join() && k.fisse.length === funzioniAttese.length * 2, `distingue ${distingue}; diversi: ${diverse.join("; ")}; schede ${schedeViste.join()}`);
+
+  const vErr = mErr.segnalazioni[0];
+  const etichettaAttesa = testi.disegnoDi.replace("{funzione}", testi.principale).replace("{conteggio}", testi.errori1);
+  prova("E11: il bollino appaiato alla segnalazione, col suo testo per la lettura dello schermo; il disegno col suo nome", JSON.stringify(d0?.bollini) === JSON.stringify([{ id: bloccoAtteso, segno: "errore", codici: vErr?.numero ?? "?", etichetta: vErr?.testo ?? "?" }]) && d0?.appaiamento.length === 0 && d0.etichetta === etichettaAttesa, `${JSON.stringify(d0?.bollini)} ${JSON.stringify(d0?.appaiamento)} «${d0?.etichetta}» / «${etichettaAttesa}»`);
+  prova("S-E11: dal bollino alla sua segnalazione, col clic e con Invio", k.dalBollino?.fuoco === "voce-0" && k.dalBollinoConInvio?.fuoco === "voce-0", `${k.dalBollino?.fuoco} ${k.dalBollinoConInvio?.fuoco}`);
+  const ch = k.chiuso;
+  prova("il riquadro si chiude: niente disegno né divisore, le segnalazioni sopra il codice, il comando dice «Mostra il flowchart»", ch?.disegno.chiuso === true && !ch.disegno.divisoreVisibile && ch.voci.length === 1 && ch.testoVisibile.includes(testi.mostra) && !ch.testoVisibile.includes(testi.nascondi) && ch.testoVisibile.indexOf(testi.segnalazioni) < ch.testoVisibile.indexOf(ch.assente ?? "?"), JSON.stringify([ch?.disegno.chiuso, ch?.disegno.divisoreVisibile, ch?.voci.length]));
+  prova("il clic su una segnalazione col riquadro chiuso lo riapre, sul blocco evidenziato", k.riapertoDallaVoce?.disegno.chiuso === false && k.riapertoDallaVoce.disegno.evidenziato === bloccoAtteso && k.riapertoDallaVoce.disegno.evidenziatoInVista, JSON.stringify([k.riapertoDallaVoce?.disegno.chiuso, k.riapertoDallaVoce?.disegno.evidenziato]));
+  prova("il divisore con la tastiera: un passo a destra è il 55%", k.divisore?.disegno.divisore === 55 && k.divisore.disegno.divisoreVisibile, `${k.divisore?.disegno.divisore}`);
+  const fz = k.funzioni?.disegno;
+  const pct = Math.round((fz?.scala ?? 0) * 100);
+  const nomiDelloZoom = [testi.zoomRiduci, `${pct}%, ${testi.zoomCento}`, testi.zoomIngrandisci, testi.zoomAdatta];
+  const dv = k.dallaVoce?.disegno;
+  prova("un flowchart mai aperto: adattato, mai oltre il 100%, e ci sta anche dopo il clic su una segnalazione; il divisore dell'ultimo; i quattro comandi dello zoom col loro nome", fz?.adattata === true && fz.scala <= 1 && fz.staNelFoglio && d0?.staNelFoglio === true && dv?.adattata === true && dv.staNelFoglio && fz.divisore === 55 && JSON.stringify(fz.zoom.map((z) => z.nome)) === JSON.stringify(nomiDelloZoom), JSON.stringify([fz?.adattata, fz?.scala, fz?.staNelFoglio, d0?.staNelFoglio, dv?.staNelFoglio, fz?.divisore, fz?.zoom]));
+  const s0 = k.primaDelloZoom?.disegno.scala ?? 0;
+  const z = k.zoom;
+  const vicino = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) < 1e-9;
+  const zoomGiusto = z.length === 5 && vicino(z[0]?.scala, Math.min(s0 * 1.25, 4)) && z[0]?.adattata === false && vicino(z[1]?.scala, 1) && vicino(z[2]?.scala, 0.8) && z[3]?.adattata === true && z[3]?.nomi?.[3]?.testo === testi.zoomTornaIndietro && vicino(z[4]?.scala, 0.8) && z[4]?.adattata === false && z[4]?.nomi?.[3]?.testo === testi.zoomAdatta;
+  // Controllo positivo del rilevatore «sta nel foglio»: al 100% il disegno alto 660 pixel non ci sta; adattato sì.
+  prova("lo zoom coi passi di AlgoDesign, un clic ciascuno: «Adatta alla finestra» diventa «Torna indietro» e ci torna", zoomGiusto && z[1]?.sta === false && z[3]?.sta === true, JSON.stringify(z.map((x) => [x.comando, x.scala, x.adattata, x.sta, x.nomi?.[3]?.testo])));
+  const er = k.erratoRiaperto?.disegno;
+  const fr = k.funzioniRiaperto?.disegno;
+  prova("riaperti, ciascuno con la sua vista: lo zoom, il divisore", er?.divisore === 55 && er.adattata && vicino(fr?.scala, 0.8) && fr?.adattata === false && fr.divisore === 60 && k.divisoreFunzioni?.disegno.divisore === 60, JSON.stringify([er?.divisore, er?.adattata, fr?.scala, fr?.adattata, fr?.divisore]));
 }
 
 if (opzioni.editor !== undefined) await nellEditor(opzioni.editor);

@@ -10,18 +10,28 @@ import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import * as vscode from "vscode";
 import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modello, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Modello } from "./documento";
-import type { DallaPagina, Fotografia, Scelta, Stato, VersoLaPagina } from "./messaggi";
+import type { DallaPagina, Fotografia, Misura, Prova, Scelta, Stato, VersoLaPagina, Vista } from "./messaggi";
 import { coloriDelTema } from "./tema";
+import { valida } from "./vista";
 
 export const TIPO_DELLA_PAGINA = "algo.pagina";
 const ULTIMA = "algo.ultimaScelta";
+const ULTIMA_VISTA = "algo.ultimaVista";
+
+/** L'impronta (sha256, esadecimale) del file del nucleo dichiarata in nucleo.json, scritta qui dalla costruzione. */
+declare const IMPRONTA_DEL_NUCLEO: string;
+/** L'attributo `integrity` del file del nucleo nella pagina: il browser lo esegue solo se i suoi byte hanno questa impronta. */
+export const INTEGRITA_DEL_NUCLEO = `sha256-${Buffer.from(IMPRONTA_DEL_NUCLEO, "hex").toString("base64")}`;
+
+/** La vista di un flowchart mai aperto: adattato alla finestra (mai oltre il 100%), il riquadro aperto, metà larghezza. */
+export const VISTA_INIZIALE: Vista = { scala: 1, adattata: true, scalaPrima: null, chiuso: false, divisore: 50 };
 
 type Aperta = {
   readonly uri: vscode.Uri;
   readonly pannello: vscode.WebviewPanel;
   aggiorna(): Promise<void>;
   manda(m: VersoLaPagina): void;
-  readonly attese: Map<number, (f: Fotografia | null) => void>;
+  readonly attese: Map<number, (f: Fotografia | Misura | null) => void>;
 };
 
 export class Pagina implements vscode.CustomReadonlyEditorProvider {
@@ -52,8 +62,9 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     return vscode.env.language.toLowerCase().startsWith("it") ? "it" : "en";
   }
 
-  private chiave(uri: vscode.Uri): string | null {
-    return vscode.workspace.getWorkspaceFolder(uri) === undefined ? null : `algo.scelta:${vscode.workspace.asRelativePath(uri, false)}`;
+  /** La chiave di una cosa ricordata per flowchart (`scelta`, `vista`): il percorso rispetto alla cartella aperta. */
+  private chiave(uri: vscode.Uri, cosa: "scelta" | "vista" = "scelta"): string | null {
+    return vscode.workspace.getWorkspaceFolder(uri) === undefined ? null : `algo.${cosa}:${vscode.workspace.asRelativePath(uri, false)}`;
   }
 
   private scelta(uri: vscode.Uri, offerti: readonly string[]): Scelta {
@@ -69,6 +80,21 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     await this.contesto.globalState.update(ULTIMA, s);
   }
 
+  /** La vista ricordata per il flowchart; per uno mai aperto, il riquadro e il divisore dell'ultima, lo zoom adattato. */
+  private vista(uri: vscode.Uri): Vista {
+    const chiave = this.chiave(uri, "vista");
+    const sua = chiave === null ? undefined : this.contesto.workspaceState.get<Vista>(chiave);
+    if (sua !== undefined) return valida(sua);
+    const ultima = this.contesto.globalState.get<Pick<Vista, "chiuso" | "divisore">>(ULTIMA_VISTA);
+    return valida({ ...VISTA_INIZIALE, ...(ultima === undefined ? {} : { chiuso: ultima.chiuso, divisore: ultima.divisore }) });
+  }
+
+  private async ricordaVista(uri: vscode.Uri, v: Vista): Promise<void> {
+    const chiave = this.chiave(uri, "vista");
+    if (chiave !== null) await this.contesto.workspaceState.update(chiave, valida(v));
+    await this.contesto.globalState.update(ULTIMA_VISTA, { chiuso: v.chiuso, divisore: valida(v).divisore });
+  }
+
   async openCustomDocument(uri: vscode.Uri): Promise<vscode.CustomDocument> {
     return { uri, dispose: () => undefined };
   }
@@ -79,17 +105,24 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     pannello.webview.options = { enableScripts: true, localResourceRoots: [dist] };
     const nonce = randomBytes(16).toString("base64");
     const w = pannello.webview;
+    // Il nucleo nella pagina è lo stesso file che l'estensione carica (dist/libreria.cjs), eseguito come script classico dopo
+    // `module` ed `exports` (nessun eval: la politica dei contenuti lo vieta), con l'impronta dichiarata che il browser verifica
+    // prima di eseguirlo. La pagina, uno script `module`, parte dopo e lo trova in `module.exports`.
+    const file = (nome: string) => w.asWebviewUri(vscode.Uri.joinPath(dist, nome)).toString();
     pannello.webview.html = `<!doctype html>
 <html lang="${this.interfaccia()}"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}'; img-src ${w.cspSource} data:; font-src ${w.cspSource};">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="${w.asWebviewUri(vscode.Uri.joinPath(dist, "pagina.css")).toString()}">
+<link rel="stylesheet" href="${file("pagina.css")}">
 </head><body><div id="radice"></div>
-<script type="module" nonce="${nonce}" src="${w.asWebviewUri(vscode.Uri.joinPath(dist, "pagina.js")).toString()}"></script>
+<script nonce="${nonce}">var module = { exports: {} }; var exports = module.exports;</script>
+<script nonce="${nonce}" id="nucleo" src="${file("libreria.cjs")}" integrity="${INTEGRITA_DEL_NUCLEO}" crossorigin="anonymous"></script>
+<script type="module" nonce="${nonce}" src="${file("pagina.js")}"></script>
 </body></html>`;
 
     let pronta = false;
     let ultimo: Stato | null = null;
+    const vista = this.vista(uri);
     const aperta: Aperta = {
       uri,
       pannello,
@@ -101,10 +134,13 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
         const interfaccia = this.interfaccia();
         const testi = testiDellInterfaccia(interfaccia);
         let m: Modello;
+        let testo = "";
         try {
-          m = modello(this.libreria, Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8"), scelta.linguaggio, scelta.lingua, interfaccia);
+          testo = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+          m = modello(this.libreria, testo, scelta.linguaggio, scelta.lingua, interfaccia);
         } catch {
           // Un file che non c'è più (cancellato o in mezzo a un salvataggio) non si legge: la pagina lo dice come un file che non si apre.
+          testo = "";
           m = { titolo: basename(uri.fsPath), funzioni: [], segnalazioni: [], codice: { assente: testi.apri } };
         }
         this.problemi.set(
@@ -122,6 +158,8 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
           lingue: (["it", "en"] as const).map((id) => ({ id, nome: testi.lingue[id] })),
           scelta,
           colori: coloriDelTema().colori,
+          testo,
+          vista,
           versione: ++this.versione,
         };
         if (pronta) aperta.manda({ tipo: "stato", stato: ultimo });
@@ -148,9 +186,10 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
         } else if (m.tipo === "scegli" && ultimo !== null) {
           await this.ricorda(uri, { linguaggio: m.linguaggio ?? ultimo.scelta.linguaggio, lingua: m.lingua ?? ultimo.scelta.lingua });
           await aperta.aggiorna();
-        } else if (m.tipo === "apriComeTesto") await apriComeTesto(uri);
-        else if (m.tipo === "fotografia") {
-          aperta.attese.get(m.id)?.(m.fotografia);
+        } else if (m.tipo === "vista") await this.ricordaVista(uri, m.vista);
+        else if (m.tipo === "apriComeTesto") await apriComeTesto(uri);
+        else if (m.tipo === "fotografia" || m.tipo === "misura") {
+          aperta.attese.get(m.id)?.(m.tipo === "misura" ? m.misura : m.fotografia);
           aperta.attese.delete(m.id);
         }
       }),
@@ -174,8 +213,22 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     return a === undefined ? undefined : apriComeTesto(a.uri);
   }
 
+  /** Per la prova con l'editor: la misura fissa o un carattere diverso, nella pagina attiva (ridisegna). */
+  prova(p: Prova): void {
+    this.attiva()?.manda({ tipo: "prova", prova: p });
+  }
+
   /** Per la prova con l'editor: ciò che la pagina attiva mostra, letto dal suo DOM; con `selettore`, prima un clic lì. */
-  fotografia(selettore?: string): Promise<{ uri: string; fotografia: Fotografia | null }> {
+  fotografia(selettore?: string, tasto?: { tasto: string; maiuscolo?: boolean }): Promise<{ uri: string; fotografia: Fotografia | null }> {
+    return this.chiedi((id) => (selettore === undefined ? { tipo: "fotografia", id } : tasto === undefined ? { tipo: "clic", id, selettore } : { tipo: "tasto", id, selettore, tasto: tasto.tasto, maiuscolo: tasto.maiuscolo === true })).then(({ uri, risposta }) => ({ uri, fotografia: risposta as Fotografia | null }));
+  }
+
+  /** Per la prova con l'editor: lo zoom e i nomi della finestra della pagina attiva. */
+  misura(): Promise<{ uri: string; misura: Misura }> {
+    return this.chiedi((id) => ({ tipo: "misura", id })).then(({ uri, risposta }) => ({ uri, misura: risposta as Misura }));
+  }
+
+  private chiedi(domanda: (id: number) => VersoLaPagina): Promise<{ uri: string; risposta: Fotografia | Misura | null }> {
     const a = this.attiva();
     if (a === undefined) return Promise.reject(new Error("nessuna pagina aperta"));
     const id = ++this.ultimaFotografia;
@@ -184,11 +237,11 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
         a.attese.delete(id);
         rifiuta(new Error("la pagina non ha risposto"));
       }, 5000);
-      a.attese.set(id, (f) => {
+      a.attese.set(id, (r) => {
         clearTimeout(tempo);
-        risolvi({ uri: a.uri.toString(), fotografia: f });
+        risolvi({ uri: a.uri.toString(), risposta: r });
       });
-      a.manda(selettore === undefined ? { tipo: "fotografia", id } : { tipo: "clic", id, selettore });
+      a.manda(domanda(id));
     });
   }
 }

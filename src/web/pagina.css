@@ -1,28 +1,49 @@
 /* La pagina del flowchart: i colori e i caratteri sono quelli dell'editor (le variabili --vscode-*), i colori del codice quelli
-   del tema (--k-*, messi dalla pagina). */
+   del tema (--k-*, messi dalla pagina). Il disegno è il foglio del nucleo di AlgoDesign, chiaro anche col tema scuro. */
 :root { --k-commento: inherit; --k-parolaChiave: inherit; --k-tipo: inherit; --k-stringa: inherit; --k-numero: inherit; --k-funzione: inherit; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 0 12px 12px; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
-.testata { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.testata { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
 .testata h1 { font-size: 1.3em; margin: 0 auto 0 0; font-weight: 600; }
-button { font: inherit; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px; padding: 3px 10px; cursor: pointer; }
+/* I bersagli: almeno 24 pixel (WCAG 2.5.8), 26 qui. */
+button { font: inherit; min-height: 26px; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px; padding: 3px 10px; cursor: pointer; }
 button:hover { background: var(--vscode-button-secondaryHoverBackground); }
-button:focus-visible, pre:focus-visible, .disegno:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
-.corpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding-top: 10px; }
-@media (max-width: 760px) { .corpo { grid-template-columns: minmax(0, 1fr); } }
-.schede { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+button.icona { min-width: 26px; padding: 3px 6px; font-weight: 700; }
+button:focus-visible, pre:focus-visible, .foglio:focus-visible, .divisore:focus-visible, .voce:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.solo-lettura { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
+
+/* Il corpo: disegno, divisore, codice; il divisore sposta la proporzione (--sinistra, --destra, messe dalla pagina). */
+.corpo { --sinistra: 1fr; --destra: 1fr; display: grid; grid-template-columns: minmax(0, var(--sinistra)) 12px minmax(0, var(--destra)); gap: 4px; padding-top: 10px; }
+.corpo.chiuso { grid-template-columns: minmax(0, 1fr); }
+.divisore { cursor: col-resize; position: relative; touch-action: none; }
+.divisore::after { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; width: 2px; background: var(--vscode-panel-border, var(--vscode-descriptionForeground)); }
+.divisore:hover::after, .divisore:focus-visible::after { background: var(--vscode-focusBorder); left: 4px; width: 4px; }
+.sinistra { display: flex; flex-direction: column; height: calc(100vh - 70px); min-height: 360px; }
+.sopra-il-foglio { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 6px; }
+.schede { display: flex; flex-wrap: wrap; gap: 4px; }
 [role=tab][aria-selected=true] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
-.disegno { min-height: 220px; border: 1px dashed var(--vscode-panel-border, currentColor); padding: 12px; color: var(--vscode-descriptionForeground); }
-.disegno p { margin: 0 0 10px; }
-.segnalato { display: inline-block; padding: 6px 10px; color: var(--vscode-foreground); font-weight: 600; border: 2px solid var(--vscode-errorForeground); border-radius: 3px; }
-.segnalato.avviso { border-color: var(--vscode-editorWarning-foreground); }
-.segnalazioni h2 { font-size: 1.05em; margin: 14px 0 6px; }
+.zoom { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.zoom .etichetta { margin-right: 2px; }
+#zoom-percento { min-width: 56px; }
+/* La misura del foglio non dipende dal disegno (flex-basis 0): con «auto» il disegno adattato cambiava il foglio, che cambiava la
+   scala (misurato: 73% e poi 67%, e dopo «Adatta» il disegno non ci stava). */
+.foglio { flex: 1 1 0; min-height: 160px; overflow: auto; padding: 8px; border: 1px solid var(--vscode-panel-border, currentColor); background: var(--vscode-editor-background); }
+.foglio svg { display: block; }
+.frase { margin: 0; padding: 4px; color: var(--vscode-foreground); }
+.bollino { cursor: pointer; }
+.bollino:focus { outline: none; }
+.bollino:focus-visible { outline: 3px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.evidenza { fill: none; stroke: var(--vscode-focusBorder, #0078d4); stroke-width: 3; pointer-events: none; }
+.segnalazioni { flex: 0 1 auto; max-height: 45%; overflow: auto; }
+.segnalazioni h2 { font-size: 1.05em; margin: 12px 0 6px; }
+.destra .segnalazioni { max-height: none; margin-bottom: 10px; }
 .voci { list-style: none; margin: 0; padding: 0; }
-.voci li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--vscode-panel-border, transparent); }
+.voci li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-top: 1px solid var(--vscode-panel-border, transparent); }
+.voci li.scelta { background: var(--vscode-list-inactiveSelectionBackground, transparent); outline: 1px solid var(--vscode-focusBorder); }
 .segno { flex: none; width: 1.4em; height: 1.4em; border-radius: 50%; text-align: center; font-weight: 700; line-height: 1.4em; color: var(--vscode-editor-background); }
 .segno.errore { background: var(--vscode-errorForeground); }
 .segno.avviso { background: var(--vscode-editorWarning-foreground); }
-.voce { display: inline; text-align: left; padding: 0; border: none; background: none; color: inherit; font-weight: 600; white-space: normal; }
+.voce { display: inline; text-align: left; padding: 0; border: none; background: none; color: inherit; font-weight: 600; white-space: normal; min-height: 0; }
 button.voce { text-decoration: underline; text-underline-offset: 2px; }
 button.voce:hover { background: none; color: var(--vscode-textLink-activeForeground); }
 .spiegazione { margin: 3px 0 0; }
@@ -37,3 +58,13 @@ pre#codice { margin: 0; height: calc(100vh - 130px); min-height: 200px; overflow
 .assente { padding: 10px; border: 1px solid var(--vscode-panel-border, currentColor); }
 .k-commento { color: var(--k-commento); } .k-parolaChiave { color: var(--k-parolaChiave); } .k-tipo { color: var(--k-tipo); }
 .k-stringa { color: var(--k-stringa); } .k-numero { color: var(--k-numero); } .k-funzione { color: var(--k-funzione); }
+
+/* Una colonna sola (finestra stretta o zoom dell'editor): il disegno sopra, il codice sotto, niente divisore. */
+@media (max-width: 760px) {
+  .corpo, .corpo.chiuso { grid-template-columns: minmax(0, 1fr); }
+  .divisore { display: none; }
+  .sinistra { height: auto; min-height: 0; }
+  /* Più basso che a due colonne: con lo zoom dell'editor «Errori e avvisi» resta vicino al disegno (rilievo del valutatore). */
+  .foglio { height: 45vh; flex: none; }
+  .segnalazioni { max-height: none; }
+}

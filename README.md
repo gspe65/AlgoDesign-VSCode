@@ -1,16 +1,19 @@
 # AlgoDesign-VSCode
 
-Un'estensione per VSCodium e Visual Studio Code che apre i flowchart di [AlgoDesign](https://github.com/gilan65/AlgoDesign) (i file `.algo`) in una pagina in sola lettura, col codice generato e gli errori del flowchart.
+Un'estensione per VSCodium e Visual Studio Code che apre i flowchart di [AlgoDesign](https://github.com/gilan65/AlgoDesign) (i file `.algo`) in una pagina in sola lettura, col disegno, il codice generato e gli errori del flowchart.
 
-> **Versione di prova (0.0.5).** La pagina del flowchart, ancora senza il disegno, che arriverà in una prossima versione. Il pacchetto è costruito dalle GitHub Actions.
+> **Versione di prova (0.0.6).** La pagina del flowchart col disegno. Il pacchetto è costruito dalle GitHub Actions.
 
 ## Che cosa fa
 
 Aprendo un file `.algo` (un clic nell'elenco dei file) si apre la **pagina del flowchart**:
 
-- a destra il **codice** generato da AlgoDesign, aperto sul programma principale e colorato coi colori del tema dell'editor; sopra, i pulsanti **Linguaggio** (Python, C) e **Lingua** (italiano, inglese) dei nomi e dei commenti del codice. La prima volta il codice è in C e in italiano; poi ogni flowchart si riapre con l'ultima scelta fatta per lui;
-- a sinistra le **schede delle funzioni** e il posto del disegno, e sotto **«Errori e avvisi»**: gli errori e gli avvisi del flowchart con le frasi di AlgoDesign (che cosa non va, che cosa è successo, come correggere). Gli stessi errori stanno anche nel pannello «Problemi». Quando il flowchart ha un errore, il codice non c'è e la pagina dice perché;
+- a sinistra il **disegno** del flowchart, lo stesso che esporta AlgoDesign, con una **scheda per ogni funzione** e, sopra, lo **zoom** coi comandi di AlgoDesign (Riduci, la percentuale che torna al 100%, Ingrandisci, «Adatta alla finestra»); la prima volta il disegno è adattato alla finestra. Sotto, **«Errori e avvisi»**: gli errori e gli avvisi del flowchart con le frasi di AlgoDesign (che cosa non va, che cosa è successo, come correggere). Ogni blocco segnalato ha il suo **bollino** nel disegno: un clic sul bollino porta alla sua segnalazione, un clic sulla segnalazione porta al blocco e lo evidenzia. Gli stessi errori stanno anche nel pannello «Problemi»;
+- a destra il **codice** generato da AlgoDesign, aperto sul programma principale e colorato coi colori del tema dell'editor; sopra, i pulsanti **Linguaggio** (Python, C) e **Lingua** (italiano, inglese), che cambiano i nomi e i commenti del codice e le parole del disegno. La prima volta il codice è in C e in italiano; poi ogni flowchart si riapre con l'ultima scelta fatta per lui. Quando il flowchart ha un errore, il codice non c'è e la pagina dice perché;
+- fra disegno e codice un **divisore** che si trascina (o, col fuoco, si sposta con le frecce); **«Nascondi il flowchart»** lascia tutta la larghezza al codice, **«Mostra il flowchart»** lo rimette. Lo zoom, il divisore e il riquadro si ricordano per ogni flowchart;
 - **«Apri come testo»** mostra il file così com'è (JSON), anche questo in sola lettura.
+
+La pagina si usa anche da tastiera: il tabulatore passa dalle schede allo zoom, al disegno coi suoi bollini, alle segnalazioni, al divisore e al codice; la lettura dello schermo dice il nome del disegno col numero degli errori, e di ogni bollino la sua segnalazione.
 
 La pagina si aggiorna da sola quando AlgoDesign salva il flowchart: legge il file dal disco. Nella pagina non si scrive nulla: il flowchart si modifica in AlgoDesign.
 
@@ -18,10 +21,10 @@ L'impostazione **`algo.pseudocodifica`** (spenta di partenza) aggiunge ai lingua
 
 ## Installarla
 
-Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica `AlgoDesign-Code-0.0.5.vsix`, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
+Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica `AlgoDesign-Code-0.0.6.vsix`, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
 
 ```
-codium --install-extension AlgoDesign-Code-0.0.5.vsix
+codium --install-extension AlgoDesign-Code-0.0.6.vsix
 ```
 
 (`code` al posto di `codium` per Visual Studio Code.)
@@ -31,10 +34,10 @@ codium --install-extension AlgoDesign-Code-0.0.5.vsix
 Il pacchetto lo costruisce la corsa delle GitHub Actions di questo repository, a ogni etichetta, **una volta sola**. Lo stesso file viene provato con VSCodium 1.143.17232 su Windows, Ubuntu (con uno schermo virtuale) e macOS. La release si crea solo se le tre prove sono verdi, e il file porta un'attestazione della sua provenienza, che si verifica con:
 
 ```
-gh attestation verify AlgoDesign-Code-0.0.5.vsix -R gspe65/AlgoDesign-VSCode
+gh attestation verify AlgoDesign-Code-0.0.6.vsix -R gspe65/AlgoDesign-VSCode
 ```
 
-Il codice e gli errori li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: in questa versione è costruito dai sorgenti di AlgoDesign all'etichetta `algodesign-core-contract-1.1`, con le opzioni del pacchetto di AlgoDesign, e confrontato con i byte e l'impronta sha256 scritti in `nucleo.json`. Quando AlgoDesign pubblicherà la release che lo contiene, si userà il file di quella release.
+Il codice, gli errori e il disegno li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: in questa versione è costruito dai sorgenti di AlgoDesign all'etichetta `algodesign-core-contract-1.1`, con le opzioni del pacchetto di AlgoDesign, e confrontato con i byte e l'impronta sha256 scritti in `nucleo.json`. Quando AlgoDesign pubblicherà la release che lo contiene, si userà il file di quella release. La pagina esegue lo stesso file che usa l'estensione, e il browser dell'editor lo esegue solo se ha l'impronta di `nucleo.json`.
 
 ## Costruirla e provarla dai sorgenti
 
