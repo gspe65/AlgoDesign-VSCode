@@ -45,7 +45,8 @@ const vistaAttiva = () => {
 /** Apre il file come lo apre un doppio clic: l'editor predefinito per quel file. */
 async function apri(file) {
   await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(file));
-  return (await aspetta((f) => f.versione > 0 && f.titolo !== "")).f;
+  // La prima apertura su una macchina lenta può superare gli 8 secondi (misurato su macOS nelle Actions).
+  return (await aspetta((f) => f.versione > 0 && f.titolo !== "", 20000)).f;
 }
 
 /** Riscrive il file come AlgoDesign: un temporaneo nuovo nella stessa cartella, rinominato sopra. */
@@ -56,6 +57,9 @@ function salvaComeAlgoDesign(file, testo) {
 }
 
 exports.run = async () => {
+  // L'estensione attivata prima di tutto: i comandi di prova esistono solo dopo. Se la pagina poi non si apre, lo dice la prova
+  // dell'apertura, non un comando «non trovato» (misurato su macOS nelle Actions: attivazione oltre l'attesa).
+  await vscode.extensions.getExtension("gilan65.algodesign-code")?.activate();
   const esiti = { lingua: vscode.env.language };
   const originale = readFileSync(ALGO_FILE, "utf8");
   const originaleErrato = readFileSync(ALGO_ERRATO);
