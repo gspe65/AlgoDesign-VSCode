@@ -27,18 +27,25 @@ export function impronta(dati: Uint8Array): string {
   return createHash("sha256").update(dati).digest("hex");
 }
 
-/** Il nucleo che l'estensione usa: il file della release di AlgoDesign e i sorgenti al commit dell'etichetta. */
+/** Il nucleo che l'estensione usa, in uno di due modi: il file della release di AlgoDesign (`zip` e `file`), o il file costruito
+ *  dai sorgenti all'etichetta (`costruzione`), quando l'etichetta non ha una release. In tutti e due i sorgenti al commit
+ *  dell'etichetta danno i tipi, l'icona e i file di prova. `licenza` è un percorso nello zip, o nei sorgenti. */
 export type Nucleo = {
   etichetta: string;
   repository: string;
   commit: string;
-  zip: { indirizzo: string; nome: string; sha256: string };
-  file: { percorso: string; sha256: string };
+  zip?: { indirizzo: string; nome: string; sha256: string };
+  file?: { percorso: string; sha256: string };
+  costruzione?: { bun: string; byte: number; sha256: string };
   licenza: string;
   sorgenti: { punto_ingresso: string; punto_ingresso_sha256: string; icona: string; icona_sha256: string; casi: string };
 };
 
 export const NUCLEO = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8")) as Nucleo;
+if ((NUCLEO.costruzione === undefined) === (NUCLEO.zip === undefined || NUCLEO.file === undefined))
+  fermo("nucleo.json vuole uno dei due modi: zip e file della release, oppure costruzione dai sorgenti");
+/** L'impronta che il file del nucleo deve avere, nell'uno o nell'altro modo. */
+export const IMPRONTA_DEL_NUCLEO: string = NUCLEO.costruzione?.sha256 ?? NUCLEO.file!.sha256;
 /** Dove `bun run nucleo` mette ciò che scarica (cartella ignorata). */
 export const CARTELLA_DEL_NUCLEO = join(RADICE, "nucleo");
 export const FILE_DEL_NUCLEO = join(CARTELLA_DEL_NUCLEO, "algodesign-core.cjs");

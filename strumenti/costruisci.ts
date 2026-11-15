@@ -1,5 +1,6 @@
 // La costruzione, sempre da capo: l'estensione in dist/extension.cjs, accanto la copia del file del nucleo (dist/libreria.cjs),
-// e il pacchetto dist/<name>-<version>.vsix fatto da vsce coi file che .vscodeignore lascia passare.
+// la pagina del flowchart (dist/pagina.js, un modulo per il browser, e dist/pagina.css), e il pacchetto dist/<name>-<version>.vsix
+// fatto da vsce coi file che .vscodeignore lascia passare.
 //
 //   bun run costruisci    atteso: ESITO: VERDE e il nome del pacchetto
 //
@@ -9,10 +10,10 @@
 
 import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { esegui, fermo, FILE_DEL_NUCLEO, impronta, NUCLEO, RADICE, rosso } from "./comune";
+import { esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, RADICE, rosso } from "./comune";
 
 if (!existsSync(FILE_DEL_NUCLEO)) fermo("manca il file del nucleo: prima bun run nucleo");
-if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== NUCLEO.file.sha256) rosso("il file del nucleo non ha l'impronta di nucleo.json: si rifà bun run nucleo");
+if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== IMPRONTA_DEL_NUCLEO) rosso("il file del nucleo non ha l'impronta di nucleo.json: si rifà bun run nucleo");
 
 const DIST = join(RADICE, "dist");
 rmSync(DIST, { recursive: true, force: true });
@@ -28,11 +29,21 @@ try {
     minify: { whitespace: true },
     external: ["vscode", "*libreria.cjs"],
   });
+  // La pagina: un modulo per il browser, senza import (tutto dentro), e il suo foglio di stile.
+  await Bun.build({
+    entrypoints: [join(RADICE, "src", "web", "pagina.ts")],
+    outdir: DIST,
+    naming: "pagina.js",
+    target: "browser",
+    format: "esm",
+    minify: { whitespace: true },
+  });
 } catch (e) {
   const errori = e instanceof AggregateError ? e.errors.map(String) : [String(e)];
   rosso(`la costruzione dell'estensione non è riuscita:\n${errori.join("\n")}`);
 }
 copyFileSync(FILE_DEL_NUCLEO, join(DIST, "libreria.cjs"));
+copyFileSync(join(RADICE, "src", "web", "pagina.css"), join(DIST, "pagina.css"));
 
 const manifesto = JSON.parse(readFileSync(join(RADICE, "package.json"), "utf8")) as { name: string; version: string };
 const vsix = join(DIST, `${manifesto.name}-${manifesto.version}.vsix`);

@@ -1,0 +1,11 @@
+{
+  // La pagina, dentro la webview: col DOM e senza i tipi di Node e dell'editor. I moduli comuni (colori, messaggi, i tipi del
+  // modello) li prende da ../ come l'estensione.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["*.ts"],
+  "exclude": []
+}

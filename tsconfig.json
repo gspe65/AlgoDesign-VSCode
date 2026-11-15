@@ -16,5 +16,7 @@
       "algodesign-core": ["./nucleo/sorgenti/app/entrypoint/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // La pagina gira nel browser della webview: ha la sua configurazione, col DOM (src/web/tsconfig.json).
+  "exclude": ["src/web"]
 }
