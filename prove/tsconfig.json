@@ -1,0 +1,8 @@
+{
+  // Le prove e gli strumenti: girano sotto Bun. Ereditano l'alias dei tipi del nucleo. I file per Node e per l'editor sono JavaScript.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": ["*.ts", "../strumenti/*.ts"]
+}

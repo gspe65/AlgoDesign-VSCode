@@ -1,0 +1,20 @@
+{
+  // L'estensione: senza DOM, con le API dell'editor e di Node. I tipi del nucleo sono quelli del punto d'ingresso di AlgoDesign
+  // al commit di nucleo.json (bun run nucleo li scarica in nucleo/sorgenti): gli stessi del file che l'estensione carica.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vscode", "node"],
+    "paths": {
+      "algodesign-core": ["./nucleo/sorgenti/app/entrypoint/index.ts"]
+    }
+  },
+  "include": ["src"]
+}
