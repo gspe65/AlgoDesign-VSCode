@@ -159,8 +159,10 @@ function fotografia(): Fotografia {
   const righe = pre === null ? [] : [...pre.querySelectorAll<HTMLElement>(".riga")];
   let rigaInCima: number | null = null;
   if (pre !== null) {
-    const cima = pre.getBoundingClientRect().top;
-    const prima = righe.findIndex((r) => r.getBoundingClientRect().bottom > cima + 1);
+    // Dal bordo interno, e una riga è visibile se ne sporgono più di 2 pixel: lo scorrimento si arrotonda al pixel, e con un'altra
+    // altezza delle righe (le macchine delle Actions) una frazione della riga sopra restava «visibile» (misurato: 25 invece di 26).
+    const cima = pre.getBoundingClientRect().top + pre.clientTop;
+    const prima = righe.findIndex((r) => r.getBoundingClientRect().bottom > cima + 2);
     rigaInCima = prima < 0 ? null : prima + 1;
   }
   const pulsanti = (etichetta: string) => [...document.querySelectorAll<HTMLElement>(`[role=radiogroup][aria-label="${CSS.escape(etichetta)}"] [role=radio]`)].map((b) => ({ nome: b.textContent ?? "", attivo: b.getAttribute("aria-checked") === "true" }));
