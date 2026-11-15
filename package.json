@@ -2,7 +2,7 @@
   "name": "AlgoDesign-Code",
   "displayName": "AlgoDesign: codice dai flowchart",
   "description": "Apre i file .algo in una pagina in sola lettura: il codice generato in C o in Python, con gli errori e gli avvisi del flowchart.",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "gilan65",
   "license": "MIT",
   "private": true,
