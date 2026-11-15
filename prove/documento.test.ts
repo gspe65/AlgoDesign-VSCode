@@ -2,13 +2,19 @@
 // versi (E3), nessun id interno nei testi visibili, i colori del codice e la lettura dei temi. Sul file vero del nucleo, quello che
 // va nel pacchetto, e sul corpus di AlgoDesign all'etichetta (nucleo/sorgenti, da `bun run nucleo`).
 //
+// Con E11 il disegno del pacchetto con la misura fissa: i bollini appaiati alle segnalazioni su tutto il corpus, la vista (zoom,
+// divisore) e i nomi dei comandi dello zoom contro quelli di AlgoDesign.
+//
 // Che cosa NON guarda: la pagina vera nel browser della webview e «Problemi» nell'editor (la prova con l'editor); i temi veri
-// dell'editor (idem).
+// dell'editor (idem); l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione
+// ne ha due: si prova la regola, `blocchiSegnalati`).
 
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { appaiamento, blocchiSegnalati, bolliniDellSvg } from "../src/bollini";
 import { coloriDalleRegole, coloreDi, leggiJsonc, pezzi, regoleDelTema, TAVOLOZZE, type Pezzo } from "../src/colori";
+import { limitaLaScala, MASSIMA, MINIMA, PASSO, scalaAdatta, valida } from "../src/vista";
 import { linguaggiOfferti, modello, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
 
 type Nucleo = typeof import("algodesign-core");
@@ -51,7 +57,7 @@ describe("il modello della pagina", () => {
     expect(v.testo).toBe("Errore in «Per: i da 1 a 3 passo 0»: Il passo del ciclo «per» non è valido.");
     expect(v.spiegazione).toBe("Il passo di un ciclo «per» deve essere un numero intero scritto così com'è (un letterale, come 2 o -1), diverso da zero e fra -2147483648 e 2147483647: il verso del ciclo si deve sapere prima di eseguirlo. Scrivi un passo come 1, 2 o -1; per un passo che cambia durante il ciclo usa un «mentre».");
     expect([v.codice, v.blocco, v.funzione]).toEqual(["invalid_step", "b1", "f1"]);
-    expect(m.codice).toEqual({ assente: "Il codice non c'è: il flowchart ha 1 errore da correggere in AlgoDesign. Lo trovi in «Errori e avvisi», sotto il disegno." });
+    expect(m.codice).toEqual({ assente: "Il codice non c'è: il flowchart ha 1 errore da correggere in AlgoDesign. Lo trovi in «Errori e avvisi»." });
   });
   test("le segnalazioni nella lingua dell'interfaccia, non in quella del codice", () => {
     const m = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "en");
@@ -205,6 +211,80 @@ describe("E3: nessun id interno sullo schermo", () => {
     const v = m.segnalazioni[0]!;
     const mutato = { ...m, segnalazioni: [{ ...v, testo: `${v.testo} (b1)`, spiegazione: `${v.spiegazione} invalid_step` }] };
     expect(interni(mutato, testiDellInterfaccia("it"), idDelProgetto(a.progetto))).toEqual(["b1", "invalid_step"]);
+  });
+});
+
+// --- E11 senza finestra: il disegno del pacchetto con la misura fissa della conformità, i bollini appaiati alle segnalazioni.
+const misuraFissa = (t: string, stile?: string) => t.length * 7 + (stile === "grassetto" ? t.length : stile === "corsivo" ? t.length / 2 : 0);
+/** Misurati sul corpus del contratto 1.1 (le funzioni come la conformità; i bollini per lingua: 56 nelle due). */
+const FUNZIONI_DEL_CORPUS = 335;
+const BOLLINI_PER_LINGUA = 28;
+
+describe("E11: i bollini del disegno appaiati alle segnalazioni", () => {
+  type Giro = { disegni: number; bollini: Record<"it" | "en", number>; motivi: string[] };
+  function giro(cambia?: (svg: string, file: string, funzione: string, lingua: "it" | "en") => string): Giro {
+    const g: Giro = { disegni: 0, bollini: { it: 0, en: 0 }, motivi: [] };
+    for (const c of corpus) {
+      const a = vero.apri(c.testo);
+      if (!a.ok) continue;
+      const errori = vero.controlla(a.progetto);
+      const voci = modello(vero, c.testo, "c", "it", "it").segnalazioni;
+      for (const f of a.progetto.functions)
+        for (const lingua of ["it", "en"] as const) {
+          let svg = vero.disegna(a.progetto, f.id, lingua, misuraFissa, "system-ui, sans-serif", { errori }).svg;
+          if (cambia !== undefined) svg = cambia(svg, c.nome, f.id, lingua);
+          g.disegni++;
+          const bollini = bolliniDellSvg(svg);
+          g.bollini[lingua] += bollini.length;
+          for (const m of appaiamento(bollini, voci, f.id)) g.motivi.push(`${c.nome} ${lingua} ${m}`);
+        }
+    }
+    return g;
+  }
+  test("su tutto il corpus, ogni funzione nelle due lingue, nei due versi, coi denominatori", () => {
+    const g = giro();
+    console.log(`E11: ${g.disegni} disegni, bollini it ${g.bollini.it} en ${g.bollini.en}, spaiati ${g.motivi.length}`);
+    expect([g.disegni, g.bollini.it, g.bollini.en]).toEqual([FUNZIONI_DEL_CORPUS * 2, BOLLINI_PER_LINGUA, BOLLINI_PER_LINGUA]);
+    expect(g.motivi).toEqual([]);
+  });
+  test("controllo positivo: un bollino tolto dal disegno è rosso col suo blocco, e lui solo", () => {
+    let tolto = 0;
+    const g = giro((svg, file, _f, lingua) => {
+      if (file !== "tappa-2/per-passo-zero.algo" || lingua !== "en") return svg;
+      tolto++;
+      return svg.replace('<g data-bollino="" data-id="b1"', '<g data-tolto="" data-id="b1"');
+    });
+    expect(tolto).toBe(1);
+    expect(g.motivi).toEqual(["tappa-2/per-passo-zero.algo en f1/b1: 0 bollini per E034"]);
+  });
+  test("controllo positivo: un bollino in più, o con un altro numero, è rosso col suo motivo", () => {
+    const voci = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "it").segnalazioni;
+    expect(appaiamento([{ id: "b1", segno: "errore", codici: "E034" }, { id: "b2", segno: "avviso", codici: "A001" }], voci, "f1")).toEqual(["f1/b2: un bollino senza segnalazione (A001)"]);
+    expect(appaiamento([{ id: "b1", segno: "avviso", codici: "E035" }], voci, "f1")).toEqual(["f1/b1: il bollino dice E035, l'elenco E034", "f1/b1: il bollino è «avviso», l'elenco «errore»"]);
+  });
+  test("l'ordine del tabulatore fra i bollini è quello dell'elenco, un blocco una volta", () => {
+    const v = (blocco: string, funzione = "f1") => ({ numero: "E001", genere: "errore" as const, blocco, funzione });
+    expect(blocchiSegnalati([v("b3"), v("b1"), v("b3"), v("b2", "f2"), { ...v("x"), blocco: null }], "f1")).toEqual(["b3", "b1"]);
+  });
+});
+
+describe("la vista del disegno: lo zoom e il divisore", () => {
+  test("i passi e i limiti di AlgoDesign; «Adatta» mai oltre il 100%", () => {
+    expect([PASSO, MINIMA, MASSIMA]).toEqual([1.25, 1 / 3, 4]);
+    expect([limitaLaScala(10), limitaLaScala(0.01), limitaLaScala(Number.NaN)]).toEqual([4, 1 / 3, 1]);
+    expect(scalaAdatta(400, 600, 800, 300)).toBe(0.5);
+    expect(scalaAdatta(100, 100, 800, 800)).toBe(1);
+  });
+  test("una vista ricordata si riporta nei limiti; «Torna indietro» c'è solo dopo «Adatta» scelto", () => {
+    expect(valida({ scala: 9, adattata: false, scalaPrima: 2, chiuso: true, divisore: 95 })).toEqual({ scala: 4, adattata: false, scalaPrima: null, chiuso: true, divisore: 80 });
+    expect(valida(undefined)).toEqual({ scala: 1, adattata: true, scalaPrima: null, chiuso: false, divisore: 50 });
+    expect(valida({ adattata: true, scalaPrima: 0.8 }).scalaPrima).toBe(0.8);
+  });
+  test("i nomi dei comandi dello zoom sono quelli di AlgoDesign, nelle due lingue", async () => {
+    const { it } = (await import(join(RADICE, "nucleo", "sorgenti", "app", "i18n", "it.ts"))) as { it: Record<string, string> };
+    const { en } = (await import(join(RADICE, "nucleo", "sorgenti", "app", "i18n", "en.ts"))) as { en: Record<string, string> };
+    const chiavi = ["zoom", "zoomRiduci", "zoomCento", "zoomIngrandisci", "zoomAdatta", "zoomTornaIndietro", "zoomTornaIndietroSuggerimento"] as const;
+    for (const [nostri, loro] of [[testiDellInterfaccia("it"), it], [testiDellInterfaccia("en"), en]] as const) expect(chiavi.map((k): string => nostri[k])).toEqual(chiavi.map((k): string => loro[k] ?? `manca ${k}`));
   });
 });
 
