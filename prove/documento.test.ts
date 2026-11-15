@@ -1,81 +1,292 @@
-// La logica dell'estensione, senza editor. Il pacchetto vero serve per un rifiuto di apertura, che nessun file del corpus produce.
+// La logica dell'estensione, senza editor: il modello della pagina, l'appaiamento delle segnalazioni ai codici del nucleo nei due
+// versi (E3), nessun id interno nei testi visibili, i colori del codice e la lettura dei temi. Sul file vero del nucleo, quello che
+// va nel pacchetto, e sul corpus di AlgoDesign all'etichetta (nucleo/sorgenti, da `bun run nucleo`).
+//
+// Che cosa NON guarda: la pagina vera nel browser della webview e «Problemi» nell'editor (la prova con l'editor); i temi veri
+// dell'editor (idem).
 
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { documento, type Libreria, type Rifiuto } from "../src/documento";
+import { coloriDalleRegole, coloreDi, leggiJsonc, pezzi, regoleDelTema, TAVOLOZZE, type Pezzo } from "../src/colori";
+import { linguaggiOfferti, modello, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
 
-// Il file del nucleo scaricato da `bun run nucleo`: lo stesso che va nel pacchetto.
-const vero = require(join(import.meta.dir, "..", "nucleo", "algodesign-core.cjs")) as Libreria;
+type Nucleo = typeof import("algodesign-core");
+const RADICE = join(import.meta.dir, "..");
+const vero = require(join(RADICE, "nucleo", "algodesign-core.cjs")) as Nucleo & Libreria;
+const CASI = join(RADICE, "nucleo", "sorgenti", "app", "casi");
 
-/** Una libreria che apre tutto e genera ciò che le si dice. */
-const finta = (esito: { generato: true; testo: string } | Rifiuto): Libreria => ({
-  apri: () => ({ ok: true, progetto: {} as never }),
-  genera: () => esito,
+/** Il corpus, enumerato dal filesystem, col totale. */
+const corpus: { nome: string; testo: string }[] = [];
+(function giro(d: string) {
+  for (const e of readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const p = join(d, e.name);
+    if (e.isDirectory()) giro(p);
+    else if (e.name.endsWith(".algo")) corpus.push({ nome: p.slice(CASI.length + 1).replaceAll("\\", "/"), testo: readFileSync(p, "utf8") });
+  }
+})(CASI);
+const caso = (nome: string) => corpus.find((c) => c.nome === nome)?.testo ?? "";
+
+/** I denominatori, misurati sul corpus del contratto 1.1 (la conformità del nucleo): si confrontano, non si derivano. */
+const FILE_DEL_CORPUS = 192;
+const VOCI_NELLE_DUE_LINGUE = 74;
+const PROGETTI_CON_VOCI = 37;
+
+describe("il modello della pagina", () => {
+  test("il corpus c'è tutto", () => expect(corpus.length).toBe(FILE_DEL_CORPUS));
+  test("lettura-intero in C: il codice del nucleo, aperto su main, nessuna segnalazione", () => {
+    const m = modello(vero, caso("tappa-1/lettura-intero.algo"), "c", "it", "it");
+    const a = vero.apri(caso("tappa-1/lettura-intero.algo"));
+    if (!a.ok) throw new Error("non si apre");
+    const g = vero.genera(a.progetto, "c", "it");
+    expect(m.titolo).toBe("lettura-intero");
+    expect(m.funzioni.map((f) => f.nome)).toEqual(["Programma principale"]);
+    expect(m.segnalazioni).toEqual([]);
+    expect(m.codice).toEqual({ testo: g.generato ? g.testo : "", rigaDiMain: 26 });
+  });
+  test("per-passo-zero: la segnalazione intera nella forma di AlgoDesign, e al posto del codice il rimando", () => {
+    const m = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "it");
+    expect(m.segnalazioni.length).toBe(1);
+    const v = m.segnalazioni[0]!;
+    expect(v.testo).toBe("Errore in «Per: i da 1 a 3 passo 0»: Il passo del ciclo «per» non è valido.");
+    expect(v.spiegazione).toBe("Il passo di un ciclo «per» deve essere un numero intero scritto così com'è (un letterale, come 2 o -1), diverso da zero e fra -2147483648 e 2147483647: il verso del ciclo si deve sapere prima di eseguirlo. Scrivi un passo come 1, 2 o -1; per un passo che cambia durante il ciclo usa un «mentre».");
+    expect([v.codice, v.blocco, v.funzione]).toEqual(["invalid_step", "b1", "f1"]);
+    expect(m.codice).toEqual({ assente: "Il codice non c'è: il flowchart ha 1 errore da correggere in AlgoDesign. Lo trovi in «Errori e avvisi», sotto il disegno." });
+  });
+  test("le segnalazioni nella lingua dell'interfaccia, non in quella del codice", () => {
+    const m = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "en");
+    expect(m.segnalazioni[0]!.testo).toBe("Error in “For: i from 1 to 3 step 0”: The step of the For loop is not valid.");
+  });
+  test("un testo che non è un file", () => {
+    expect(modello(vero, "questo non è un file", "python", "it", "it").codice).toEqual({ assente: "Questo file non si apre: non contiene un flowchart di AlgoDesign valido." });
+  });
+  test("una lingua del codice fuori elenco è un errore col nome", () => {
+    expect(() => modello(vero, caso("tappa-1/lettura-intero.algo"), "c", "IT" as "it", "it")).toThrow("lingua sconosciuta: IT");
+  });
+  test("col BOM e coi fine riga CRLF lo stesso modello", () => {
+    const t = caso("tappa-1/lettura-intero.algo");
+    expect(modello(vero, String.fromCharCode(0xfeff) + t.replaceAll("\n", "\r\n"), "python", "en", "it")).toEqual(modello(vero, t, "python", "en", "it"));
+  });
+  test("i linguaggi offerti: C e Python, Pseudocodice con l'impostazione, tutti nel registro del nucleo", async () => {
+    expect(linguaggiOfferti(false)).toEqual(["python", "c"]);
+    expect(linguaggiOfferti(true)).toEqual(["pseudocodice", "python", "c"]);
+    const { linguaggi } = (await import(join(RADICE, "nucleo", "sorgenti", "app", "core", "genera", "linguaggi.ts"))) as { linguaggi: { id: string }[] };
+    expect(linguaggiOfferti(true).filter((l) => !linguaggi.some((r) => r.id === l))).toEqual([]);
+  });
+  test("main: su tutto il corpus la riga indicata è quella del programma principale, in C e in Python", () => {
+    let contati = 0;
+    const sbagliati: string[] = [];
+    for (const c of corpus) {
+      const a = vero.apri(c.testo);
+      if (!a.ok) continue;
+      for (const l of ["c", "python"] as const) {
+        const g = vero.genera(a.progetto, l, "it");
+        if (!g.generato) continue;
+        contati++;
+        const riga = g.testo.split("\n")[rigaDiMain(g.testo, l) - 1] ?? "";
+        if (!riga.startsWith(l === "c" ? "int main(" : "def main(")) sbagliati.push(`${c.nome} ${l}: ${riga}`);
+      }
+    }
+    console.log(`main: ${contati} testi, sbagliati ${sbagliati.length}`);
+    expect(contati).toBeGreaterThan(300);
+    expect(sbagliati).toEqual([]);
+  });
 });
 
-describe("il testo generato", () => {
-  test("passa così com'è, senza aggiunte", () => {
-    expect(documento(finta({ generato: true, testo: "x = 1\n" }), "", "python", "it").testo).toBe("x = 1\n");
+// --- E3: le voci della pagina appaiate ai codici di `controlla` (errori e avvisi), per file e lingua, nei due versi, con le ripetizioni.
+type Coppia = { file: string; lingua: "it" | "en"; pagina: string[]; nucleo: string[] };
+const fuoriTappa: string[] = [];
+function coppie(costruisci: (testo: string, lingua: "it" | "en") => Modello): Coppia[] {
+  const fuori: Coppia[] = [];
+  for (const c of corpus) {
+    const a = vero.apri(c.testo);
+    if (!a.ok) continue;
+    const k = vero.controlla(a.progetto);
+    // «Fuori tappa» non ha elenchi: il corpus non ne ha (conformità), e la prova lo conta invece di supporlo.
+    if (k.fuoriTappa) fuoriTappa.push(c.nome);
+    const nucleo = k.fuoriTappa ? [] : [...k.errori, ...k.avvisi].map((e) => e.code).sort();
+    for (const lingua of ["it", "en"] as const) fuori.push({ file: c.nome, lingua, pagina: costruisci(c.testo, lingua).segnalazioni.map((s) => s.codice).sort(), nucleo });
+  }
+  return fuori;
+}
+/** I motivi, uno per codice spaiato, col nome del file, la lingua e il verso. Vuoto è verde. */
+function spaiati(cc: Coppia[]): string[] {
+  const motivi: string[] = [];
+  for (const c of cc) {
+    const resto = [...c.nucleo];
+    for (const p of c.pagina) {
+      const i = resto.indexOf(p);
+      if (i < 0) motivi.push(`${c.file} ${c.lingua}: ${p} sulla pagina e non nel nucleo`);
+      else resto.splice(i, 1);
+    }
+    for (const r of resto) motivi.push(`${c.file} ${c.lingua}: ${r} nel nucleo e non sulla pagina`);
+  }
+  return motivi;
+}
+
+describe("E3: l'appaiamento delle segnalazioni ai codici del nucleo", () => {
+  const vere = coppie((t, l) => modello(vero, t, "c", "it", l));
+  test("nei due versi, coi denominatori", () => {
+    const voci = vere.reduce((n, c) => n + c.pagina.length, 0);
+    const progetti = new Set(vere.filter((c) => c.pagina.length > 0).map((c) => c.file)).size;
+    const motivi = spaiati(vere);
+    console.log(`appaiamento: ${vere.length} coppie file-lingua, ${voci} voci sulla pagina, ${progetti} progetti con voci; fuori tappa ${fuoriTappa.length}; spaiati ${motivi.length}`);
+    expect([voci, progetti, fuoriTappa.length]).toEqual([VOCI_NELLE_DUE_LINGUE, PROGETTI_CON_VOCI, 0]);
+    expect(motivi).toEqual([]);
   });
-  test.each([
-    ["python", "python"],
-    ["c", "c"],
-    ["typescript", "typescript"],
-    ["pseudocodice", "plaintext"],
-    ["accademico", "plaintext"],
-  ])("%s si colora come %s", (linguaggio, atteso) => {
-    expect(documento(finta({ generato: true, testo: "x" }), "", linguaggio, "it").idLinguaggio).toBe(atteso);
+  test("controllo positivo: un codice tolto dalla pagina è rosso col suo nome, e lui solo", () => {
+    let tolto = false;
+    const mutate = coppie((t, l) => {
+      const m = modello(vero, t, "c", "it", l);
+      if (tolto || l !== "en" || !m.segnalazioni.some((s) => s.codice === "invalid_step")) return m;
+      tolto = true;
+      return { ...m, segnalazioni: m.segnalazioni.filter((s) => s.codice !== "invalid_step") };
+    });
+    expect(tolto).toBe(true);
+    expect(spaiati(mutate)).toEqual(["tappa-2/per-passo-zero.algo en: invalid_step nel nucleo e non sulla pagina"]);
+  });
+  test("controllo positivo: un codice in più sulla pagina è rosso col suo nome, e lui solo", () => {
+    const mutate = coppie((t, l) => {
+      const m = modello(vero, t, "c", "it", l);
+      return l === "it" && m.titolo === "lettura-intero" ? { ...m, segnalazioni: [...m.segnalazioni, { genere: "avviso", testo: "x", spiegazione: "x", dove: "x", numero: "A999", codice: "codice_finto", blocco: null, funzione: null }] } : m;
+    });
+    expect(spaiati(mutate)).toEqual(["tappa-1/lettura-intero.algo it: codice_finto sulla pagina e non nel nucleo"]);
   });
 });
 
-describe("i rifiuti", () => {
-  // Le mancanze di un file vero del corpus.
-  const nonCiSta: Rifiuto = {
-    generato: false,
-    perche: "non-ci-sta",
-    mancanze: [{ specie: "reale", dato: "a" }, { specie: "reale", dato: "b" }, { specie: "arrotondamento", operatore: "round", blocco: "b1" }],
+// --- Nessun id interno nei testi visibili: gli `id` del progetto e i codici del nucleo, come parole intere.
+function idDelProgetto(p: unknown, fuori = new Set<string>()): Set<string> {
+  if (Array.isArray(p)) for (const x of p) idDelProgetto(x, fuori);
+  else if (p !== null && typeof p === "object")
+    for (const [k, v] of Object.entries(p)) {
+      if (k === "id" && typeof v === "string") fuori.add(v);
+      else idDelProgetto(v, fuori);
+    }
+  return fuori;
+}
+const CODICI_DEL_NUCLEO = new Set<string>();
+for (const c of corpus) {
+  const a = vero.apri(c.testo);
+  if (a.ok) for (const s of vero.segnalazioni(a.progetto, "it")) CODICI_DEL_NUCLEO.add(s.codice);
+}
+/** Le parole interne trovate nei testi visibili che non sono codice generato (lì una variabile può chiamarsi b1). */
+function interni(m: Modello, testi: ReturnType<typeof testiDellInterfaccia>, ids: Set<string>): string[] {
+  const codice = "assente" in m.codice ? null : m.codice.testo;
+  const trovati: string[] = [];
+  for (const t of testiVisibili(m, testi)) {
+    if (t === codice) continue;
+    for (const parola of t.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) if (ids.has(parola) || CODICI_DEL_NUCLEO.has(parola)) trovati.push(parola);
+  }
+  return trovati;
+}
+
+describe("E3: nessun id interno sullo schermo", () => {
+  test("su tutto il corpus, nelle due lingue dell'interfaccia e in ogni linguaggio offerto", () => {
+    let modelli = 0;
+    const trovati: string[] = [];
+    for (const c of corpus) {
+      const a = vero.apri(c.testo);
+      const ids = a.ok ? idDelProgetto(a.progetto) : new Set<string>();
+      for (const interfaccia of ["it", "en"] as const)
+        for (const l of linguaggiOfferti(true)) {
+          const m = modello(vero, c.testo, l, "it", interfaccia);
+          modelli++;
+          for (const t of interni(m, testiDellInterfaccia(interfaccia), ids)) trovati.push(`${c.nome} ${interfaccia} ${l}: ${t}`);
+        }
+    }
+    console.log(`id interni: ${modelli} modelli, codici del nucleo cercati ${CODICI_DEL_NUCLEO.size}, trovati ${trovati.length}`);
+    expect(CODICI_DEL_NUCLEO.size).toBeGreaterThan(10);
+    expect(trovati).toEqual([]);
+  });
+  test("controllo positivo: un b1 e un invalid_step messi in una voce si vedono", () => {
+    const a = vero.apri(caso("tappa-2/per-passo-zero.algo"));
+    if (!a.ok) throw new Error("non si apre");
+    const m = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "it");
+    const v = m.segnalazioni[0]!;
+    const mutato = { ...m, segnalazioni: [{ ...v, testo: `${v.testo} (b1)`, spiegazione: `${v.spiegazione} invalid_step` }] };
+    expect(interni(mutato, testiDellInterfaccia("it"), idDelProgetto(a.progetto))).toEqual(["b1", "invalid_step"]);
+  });
+});
+
+// --- I colori del codice.
+const ricompone = (testo: string, pz: readonly Pezzo[]) => pz.map((p) => p.testo).join("") === testo;
+/** La specie della parte che copre la prima occurrenza della parola nel testo ricomposto; `undefined` se la parola non c'è o se
+ *  attraversa due parti (allora non è stata riconosciuta come un pezzo solo). */
+function specieDi(pz: readonly Pezzo[], parola: string): Pezzo["specie"] | undefined {
+  const inizio = pz.map((p) => p.testo).join("").indexOf(parola);
+  if (inizio < 0) return undefined;
+  let posizione = 0;
+  for (const p of pz) {
+    if (inizio >= posizione && inizio < posizione + p.testo.length) return inizio + parola.length <= posizione + p.testo.length ? p.specie : undefined;
+    posizione += p.testo.length;
+  }
+  return undefined;
+}
+
+describe("i colori: le parti del codice", () => {
+  test("su tutto il corpus le parti ricompongono il codice, carattere per carattere", () => {
+    let testi = 0;
+    const rotti: string[] = [];
+    for (const c of corpus) {
+      const a = vero.apri(c.testo);
+      if (!a.ok) continue;
+      for (const l of linguaggiOfferti(true))
+        for (const lingua of ["it", "en"] as const) {
+          const g = vero.genera(a.progetto, l, lingua);
+          if (!g.generato) continue;
+          testi++;
+          if (!ricompone(g.testo, pezzi(g.testo, l))) rotti.push(`${c.nome} ${l} ${lingua}`);
+        }
+    }
+    console.log(`colori: ${testi} testi, non ricomposti ${rotti.length}`);
+    expect(testi).toBeGreaterThan(1000);
+    expect(rotti).toEqual([]);
+  });
+  test("controllo positivo: una parte persa non ricompone", () => {
+    const t = "int main(void) {\n";
+    expect(ricompone(t, pezzi(t, "c").slice(1))).toBe(false);
+  });
+  test("C: tipo, funzione, commento, direttiva, stringa, numero", () => {
+    const t = '/* a */\n#include <stdio.h>\nint main(void) {\n    printf("%d\\n", n * 2);\n    return 0;\n}\n';
+    const pz = pezzi(t, "c");
+    expect([specieDi(pz, "/* a */"), specieDi(pz, "#include"), specieDi(pz, "<stdio.h>"), specieDi(pz, "int"), specieDi(pz, "main"), specieDi(pz, "printf"), specieDi(pz, '"%d\\n"'), specieDi(pz, "2"), specieDi(pz, "return")]).toEqual(["commento", "parolaChiave", "stringa", "tipo", "funzione", "funzione", "stringa", "numero", "parolaChiave"]);
+  });
+  test("Python: parola chiave, funzione, tipo, commento, stringa con prefisso", () => {
+    const pz = pezzi('def main() -> None:\n    n: int  # input\n    print(f"{n}")\n', "python");
+    expect([specieDi(pz, "def"), specieDi(pz, "main"), specieDi(pz, "None"), specieDi(pz, "int"), specieDi(pz, "# input"), specieDi(pz, "print"), specieDi(pz, 'f"{n}"')]).toEqual(["parolaChiave", "funzione", "parolaChiave", "tipo", "commento", "funzione", "stringa"]);
+  });
+  test("pseudocodice: parole maiuscole, tipi, commento; una costante col trattino basso no", () => {
+    const pz = pezzi("PROGRAMMA x\nDATI\n    n: intero  // input\n    MAX_VOTI ← 8\n    SCRIVI come_carattere(0)\n", "pseudocodice");
+    expect([specieDi(pz, "PROGRAMMA"), specieDi(pz, "intero"), specieDi(pz, "// input"), specieDi(pz, "MAX_VOTI"), specieDi(pz, "SCRIVI"), specieDi(pz, "come_carattere")]).toEqual(["parolaChiave", "tipo", "commento", null, "parolaChiave", "funzione"]);
+  });
+});
+
+describe("i colori: il tema", () => {
+  // Una catena come quella dei temi dell'editor: il tema include la sua base, coi commenti e le virgole in coda.
+  const FILE: Record<string, string> = {
+    "/t/scuro.json": '{ "include": "./base.json", // la base\n "tokenColors": [ { "scope": "keyword.control", "settings": { "foreground": "#C586C0" } }, ] }',
+    "/t/base.json": '{ /* base */ "tokenColors": [ { "scope": ["keyword", "comment"], "settings": { "foreground": "#569CD6" } }, { "scope": "string", "settings": { "foreground": "#CE9178" } }, { "scope": "meta.x entity.name.function, support.function", "settings": { "foreground": "#DCDCAA" } } ] }',
+    "/t/altro.json": '{ "tokenColors": "./colori.tmTheme" }',
+    "/t/giro.json": '{ "include": "./giro.json" }',
   };
-  test("non ci sta, in italiano", () => {
-    const d = documento(finta(nonCiSta), "", "accademico", "it");
-    expect(d.testo).toBe("Il programma non si scrive in accademico. Ecco che cosa cambiare:\n- reale: a\n- reale: b\n- arrotondamento: round, blocco b1\n");
-    expect(d.idLinguaggio).toBe("plaintext");
+  const leggi = (p: string, rispettoA?: string) => {
+    const pieno = rispettoA === undefined ? p : `${rispettoA.slice(0, rispettoA.lastIndexOf("/"))}/${p.replace(/^\.\//, "")}`;
+    const testo = FILE[pieno];
+    if (testo === undefined) throw new Error(`non c'è ${pieno}`);
+    return { percorso: pieno, testo };
+  };
+  test("JSON coi commenti e le virgole in coda", () => {
+    expect(leggiJsonc('{ "a": "//x", /* c */ "b": [1, 2,], }')).toEqual({ a: "//x", b: [1, 2] });
   });
-  test("non ci sta, in inglese", () => {
-    expect(documento(finta(nonCiSta), "", "accademico", "en").testo).toBe("The program cannot be written in accademico. What to change:\n- reale: a\n- reale: b\n- arrotondamento: round, block b1\n");
+  test("la catena di include: la regola più precisa vince, il selettore discendente conta per l'ultimo ambito", () => {
+    const regole = regoleDelTema(leggi, "/t/scuro.json");
+    expect([coloreDi(regole, "parolaChiave"), coloreDi(regole, "commento"), coloreDi(regole, "stringa"), coloreDi(regole, "funzione"), coloreDi(regole, "numero")]).toEqual(["#C586C0", "#569CD6", "#CE9178", "#DCDCAA", null]);
+    const { colori, dalTema } = coloriDalleRegole(regole, TAVOLOZZE.scuro);
+    expect(colori.numero).toBe(TAVOLOZZE.scuro.numero);
+    expect(dalTema).toEqual(["commento", "parolaChiave", "stringa", "funzione"]);
   });
-  test("una mancanza di una funzione, e una senza posto", () => {
-    const r: Rifiuto = { generato: false, perche: "non-ci-sta", mancanze: [{ specie: "matrice", funzione: "f1" }, { specie: "pi" }] };
-    expect(documento(finta(r), "", "accademico", "en").testo).toBe("The program cannot be written in accademico. What to change:\n- matrice: function f1\n- pi\n");
-  });
-  test("errori statici", () => {
-    const r: Rifiuto = { generato: false, perche: "errori-statici" };
-    expect(documento(finta(r), "", "c", "it").testo).toBe("Il programma ha errori da correggere: il codice non si genera.\n");
-    expect(documento(finta(r), "", "c", "it").idLinguaggio).toBe("plaintext");
-  });
-  test("fuori tappa", () => {
-    expect(documento(finta({ generato: false, perche: "fuori-tappa" }), "", "c", "en").testo).toBe("The program uses constructs beyond its stage: no code is generated.\n");
-  });
-  test("non ancora, col costrutto", () => {
-    expect(documento(finta({ generato: false, perche: "non-ancora", costrutto: "record" }), "", "c", "it").testo).toBe("Il generatore di c non sa ancora scrivere questo programma:\n- record\n");
-  });
-  test("un testo che non è un file, col pacchetto vero", () => {
-    const it = documento(vero, "questo non è un file", "python", "it");
-    expect(it.testo).toBe("Questo file non si apre: non contiene un programma valido.\n");
-    expect(it.idLinguaggio).toBe("plaintext");
-    expect(documento(vero, "questo non è un file", "python", "en").testo).toBe("This file cannot be opened: it does not contain a valid program.\n");
-  });
-  test("una lingua fuori elenco è un errore col nome, anche su un file che non si apre", () => {
-    expect(() => documento(vero, "questo non è un file", "python", "IT" as "it")).toThrow("lingua sconosciuta: IT");
-    expect(() => documento(finta({ generato: false, perche: "errori-statici" }), "", "python", "IT" as "it")).toThrow("lingua sconosciuta: IT");
-  });
-  test("un file col BOM e coi fine riga CRLF dà lo stesso documento", () => {
-    const tutta = vero as unknown as typeof import("algodesign-core");
-    const letta = tutta.leggiAccademico("function somma(a: integer, b: integer) → integer\n    return a + b\nend function\n");
-    if (!letta.ok) throw new Error("la lettura non è riuscita");
-    const nuova = tutta.aggiungiAllaLibreria({ nome: "prova" }, letta, false);
-    if (!nuova.ok) throw new Error("l'aggiunta non è riuscita");
-    const atteso = documento(vero, nuova.testo, "python", "en");
-    expect(atteso.testo).toContain("somma");
-    expect(documento(vero, String.fromCharCode(0xfeff) + nuova.testo.replaceAll("\n", "\r\n"), "python", "en")).toEqual(atteso);
+  test("un tema coi colori in un altro formato, o una catena circolare: eccezione col motivo", () => {
+    expect(() => regoleDelTema(leggi, "/t/altro.json")).toThrow("tokenColors in un altro file");
+    expect(() => regoleDelTema(leggi, "/t/giro.json")).toThrow("catena di include circolare");
   });
 });

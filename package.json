@@ -1,8 +1,8 @@
 {
   "name": "AlgoDesign-Code",
   "displayName": "AlgoDesign: codice dai flowchart",
-  "description": "Mostra in sola lettura il codice generato da un file .algo.",
-  "version": "0.0.2",
+  "description": "Apre i file .algo in una pagina in sola lettura: il codice generato in C o in Python, con gli errori e gli avvisi del flowchart.",
+  "version": "0.0.3",
   "publisher": "gilan65",
   "license": "MIT",
   "private": true,
@@ -12,24 +12,18 @@
   "main": "./dist/extension.cjs",
   "contributes": {
     "languages": [{ "id": "algo", "aliases": ["Flowchart AlgoDesign"], "extensions": [".algo"], "icon": { "light": "./icona.png", "dark": "./icona.png" } }],
-    "commands": [{ "command": "algo.mostraCodice", "title": "Mostra il codice generato" }],
+    "customEditors": [{ "viewType": "algo.pagina", "displayName": "Flowchart di AlgoDesign", "selector": [{ "filenamePattern": "*.algo" }], "priority": "default" }],
+    "commands": [{ "command": "algo.apriComeTesto", "title": "Apri come testo", "category": "AlgoDesign" }],
     "menus": {
-      "commandPalette": [{ "command": "algo.mostraCodice", "when": "resourceExtname == .algo" }]
+      "commandPalette": [{ "command": "algo.apriComeTesto", "when": "activeCustomEditorId == algo.pagina" }]
     },
     "configuration": {
       "title": "Codice dai flowchart",
       "properties": {
-        "algo.linguaggio": {
-          "type": "string",
-          "enum": ["pseudocodice", "python", "c", "accademico", "typescript"],
-          "default": "python",
-          "description": "Il linguaggio del codice generato."
-        },
-        "algo.lingua": {
-          "type": "string",
-          "enum": ["it", "en"],
-          "default": "it",
-          "description": "La lingua dei nomi e dei commenti del codice generato."
+        "algo.pseudocodifica": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mostra anche i linguaggi di pseudocodifica fra le scelte della pagina del flowchart (oggi Pseudocodice)."
         }
       }
     }

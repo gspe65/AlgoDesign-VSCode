@@ -1,20 +1,16 @@
 {
-  "etichetta": "v1.0.0",
+  "etichetta": "algodesign-core-contract-1.1",
   "repository": "https://github.com/gilan65/AlgoDesign",
-  "commit": "358ed925f039ee4012ae1fb477def8c738851c2b",
-  "zip": {
-    "indirizzo": "https://github.com/gilan65/AlgoDesign/releases/download/v1.0.0/AlgoDesign-Core-1.0.0.zip",
-    "nome": "AlgoDesign-Core-1.0.0.zip",
-    "sha256": "465c0485bcdf524cb4ca2a0135a7d075a7276a93945e332337a0073b400249eb"
+  "commit": "3ac5e07913b35debf0229afa724b9aa9ad07f997",
+  "costruzione": {
+    "bun": "1.4.2",
+    "byte": 610339,
+    "sha256": "b89ead06ed8d8c41fbbe5efaed889b260a4ec349518b9f261968a880e2eafa6a"
   },
-  "file": {
-    "percorso": "AlgoDesign-Core-1.0.0/algodesign-core.cjs",
-    "sha256": "7f0f098214494ec44d3ae93a8c9ab6e0e113d2e9823f6d1ca069b5dd3ffb7c84"
-  },
-  "licenza": "AlgoDesign-Core-1.0.0/LICENSE",
+  "licenza": "LICENSE",
   "sorgenti": {
     "punto_ingresso": "app/entrypoint/index.ts",
-    "punto_ingresso_sha256": "2fda092b3879b45403976e966c10958ebd575ccc983f16c00fbf81d2b0c330e1",
+    "punto_ingresso_sha256": "1afdf0bf11ab02bc70407a11ab001947d6eecc52523a4dbc01060a1f5956cc17",
     "icona": "app/shell/icons/128x128.png",
     "icona_sha256": "698f58ac86127dbb857f1dbf7a02b6d7ad04da8ed83279e3e90fd73ae37472b9",
     "casi": "app/casi"
