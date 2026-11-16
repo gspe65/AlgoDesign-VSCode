@@ -68,6 +68,8 @@ export type FotografiaDelDisegno = {
   readonly chiuso: boolean;
   readonly divisore: number;
   readonly divisoreVisibile: boolean;
+  /** La larghezza della pagina in pixel CSS: sotto i 760 la pagina è a una colonna e il divisore non c'è. */
+  readonly larghezzaPagina: number;
 };
 
 /** Ciò che la pagina mostra, letto dal suo DOM: lo usa solo la prova con l'editor. */

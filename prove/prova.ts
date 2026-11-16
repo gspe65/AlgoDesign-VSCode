@@ -467,7 +467,10 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const ch = k.chiuso;
   prova("il riquadro si chiude: niente disegno né divisore, le segnalazioni sopra il codice, il comando dice «Mostra il flowchart»", ch?.disegno.chiuso === true && !ch.disegno.divisoreVisibile && ch.voci.length === 1 && ch.testoVisibile.includes(testi.mostra) && !ch.testoVisibile.includes(testi.nascondi) && ch.testoVisibile.indexOf(testi.segnalazioni) < ch.testoVisibile.indexOf(ch.assente ?? "?"), JSON.stringify([ch?.disegno.chiuso, ch?.disegno.divisoreVisibile, ch?.voci.length]));
   prova("il clic su una segnalazione col riquadro chiuso lo riapre, sul blocco evidenziato", k.riapertoDallaVoce?.disegno.chiuso === false && k.riapertoDallaVoce.disegno.evidenziato === bloccoAtteso && k.riapertoDallaVoce.disegno.evidenziatoInVista, JSON.stringify([k.riapertoDallaVoce?.disegno.chiuso, k.riapertoDallaVoce?.disegno.evidenziato]));
-  prova("il divisore con la tastiera: un passo a destra è il 55%", k.divisore?.disegno.divisore === 55 && k.divisore.disegno.divisoreVisibile, `${k.divisore?.disegno.divisore}`);
+  // Il divisore si vede solo a due colonne (pagina oltre i 760 pixel): nelle Actions la finestra è più stretta (misurato: rosso sui
+  // tre sistemi con il valore giusto e la pagina a una colonna).
+  const dd = k.divisore?.disegno;
+  prova("il divisore con la tastiera: un passo a destra è il 55%; si vede solo con la pagina a due colonne", dd?.divisore === 55 && dd.divisoreVisibile === dd.larghezzaPagina > 760, `${dd?.divisore}, visibile ${dd?.divisoreVisibile}, pagina ${dd?.larghezzaPagina} px`);
   const fz = k.funzioni?.disegno;
   const pct = Math.round((fz?.scala ?? 0) * 100);
   const nomiDelloZoom = [testi.zoomRiduci, `${pct}%, ${testi.zoomCento}`, testi.zoomIngrandisci, testi.zoomAdatta];
