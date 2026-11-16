@@ -2,7 +2,7 @@
 
 Un'estensione per VSCodium e Visual Studio Code che apre i flowchart di [AlgoDesign](https://github.com/gilan65/AlgoDesign) (i file `.algo`) in una pagina in sola lettura, col disegno, il codice generato e gli errori del flowchart.
 
-> **Versione di prova (0.0.6).** La pagina del flowchart col disegno. Il pacchetto è costruito dalle GitHub Actions.
+> **Versione di prova (0.0.7).** La pagina del flowchart col disegno. Il pacchetto è costruito dalle GitHub Actions.
 
 ## Che cosa fa
 
@@ -21,10 +21,10 @@ L'impostazione **`algo.pseudocodifica`** (spenta di partenza) aggiunge ai lingua
 
 ## Installarla
 
-Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica `AlgoDesign-Code-0.0.6.vsix`, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
+Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica `AlgoDesign-Code-0.0.7.vsix`, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
 
 ```
-codium --install-extension AlgoDesign-Code-0.0.6.vsix
+codium --install-extension AlgoDesign-Code-0.0.7.vsix
 ```
 
 (`code` al posto di `codium` per Visual Studio Code.)
@@ -34,7 +34,7 @@ codium --install-extension AlgoDesign-Code-0.0.6.vsix
 Il pacchetto lo costruisce la corsa delle GitHub Actions di questo repository, a ogni etichetta, **una volta sola**. Lo stesso file viene provato con VSCodium 1.143.17232 su Windows, Ubuntu (con uno schermo virtuale) e macOS. La release si crea solo se le tre prove sono verdi, e il file porta un'attestazione della sua provenienza, che si verifica con:
 
 ```
-gh attestation verify AlgoDesign-Code-0.0.6.vsix -R gspe65/AlgoDesign-VSCode
+gh attestation verify AlgoDesign-Code-0.0.7.vsix -R gspe65/AlgoDesign-VSCode
 ```
 
 Il codice, gli errori e il disegno li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: in questa versione è costruito dai sorgenti di AlgoDesign all'etichetta `algodesign-core-contract-1.1`, con le opzioni del pacchetto di AlgoDesign, e confrontato con i byte e l'impronta sha256 scritti in `nucleo.json`. Quando AlgoDesign pubblicherà la release che lo contiene, si userà il file di quella release. La pagina esegue lo stesso file che usa l'estensione, e il browser dell'editor lo esegue solo se ha l'impronta di `nucleo.json`.

@@ -489,6 +489,7 @@ function fotografiaDelDisegno(): FotografiaDelDisegno {
       const d = document.getElementById("divisore");
       return d !== null && d.getBoundingClientRect().width > 0;
     })(),
+    larghezzaPagina: window.innerWidth,
   };
 }
 
