@@ -1,5 +1,5 @@
 // Il collegamento con l'editor: la pagina del flowchart per i file .algo (editor personalizzato in sola lettura), le sue voci in
-// «Problemi» e il comando «Apri come testo» (una vista di sola lettura del JSON). Il file del nucleo di AlgoDesign sta accanto a questo file dopo la costruzione: è lo
+// «Problemi», il comando «Apri come testo» (una vista di sola lettura del JSON) e, dalla pagina, «Salva il codice come…». Il file del nucleo di AlgoDesign sta accanto a questo file dopo la costruzione: è lo
 // stesso file che si prova fuori dall'editor.
 //
 // Con ALGO_PROVA=1 nell'ambiente (solo la prova con l'editor) ci sono anche i comandi che leggono la pagina e spengono
@@ -30,5 +30,12 @@ export function activate(contesto: vscode.ExtensionContext): void {
         pagina.osservatoreAcceso = acceso;
       }),
       vscode.commands.registerCommand("algo.prova.colori", () => coloriDelTema()),
+      // Le risposte della finestra «Salva con nome» al posto di Windows (un percorso, o null per «Annulla»), e le domande arrivate.
+      // Con null si torna alla finestra vera.
+      vscode.commands.registerCommand("algo.prova.dialogo", (risposte?: (string | null)[] | null) => {
+        if (risposte === null) pagina.risposteDelDialogo = null;
+        else if (risposte !== undefined) pagina.risposteDelDialogo = [...risposte];
+        return { domande: pagina.domandeAlDialogo };
+      }),
     );
 }

@@ -5,6 +5,8 @@
 // Con E11 il disegno del pacchetto con la misura fissa: i bollini appaiati alle segnalazioni su tutto il corpus, la vista (zoom,
 // divisore) e i nomi dei comandi dello zoom contro quelli di AlgoDesign.
 //
+// «Salva il codice come…»: il nome proposto, il primo nome libero, il confronto col file che c'è.
+//
 // Che cosa NON guarda: la pagina vera nel browser della webview e «Problemi» nell'editor (la prova con l'editor); i temi veri
 // dell'editor (idem); l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione
 // ne ha due: si prova la regola, `blocchiSegnalati`).
@@ -16,6 +18,7 @@ import { appaiamento, blocchiSegnalati, bolliniDellSvg } from "../src/bollini";
 import { coloriDalleRegole, coloreDi, leggiJsonc, pezzi, regoleDelTema, TAVOLOZZE, type Pezzo } from "../src/colori";
 import { limitaLaScala, MASSIMA, MINIMA, PASSO, scalaAdatta, valida } from "../src/vista";
 import { linguaggiOfferti, modello, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
+import { altroNome, confronto, ESTENSIONI, nomeDelCodice } from "../src/salva";
 
 type Nucleo = typeof import("algodesign-core");
 const RADICE = join(import.meta.dir, "..");
@@ -368,5 +371,33 @@ describe("i colori: il tema", () => {
   test("un tema coi colori in un altro formato, o una catena circolare: eccezione col motivo", () => {
     expect(() => regoleDelTema(leggi, "/t/altro.json")).toThrow("tokenColors in un altro file");
     expect(() => regoleDelTema(leggi, "/t/giro.json")).toThrow("catena di include circolare");
+  });
+});
+
+describe("«Salva il codice come…»", () => {
+  test("il nome proposto è quello del flowchart con l'estensione del linguaggio; ogni linguaggio offerto ha la sua", () => {
+    expect(nomeDelCodice("lettura-intero.algo", "c")).toBe("lettura-intero.c");
+    expect(nomeDelCodice("lettura-intero.algo", "python")).toBe("lettura-intero.py");
+    expect(nomeDelCodice("lettura-intero.algo", "pseudocodice")).toBe("lettura-intero.txt");
+    expect(nomeDelCodice("Il Mio  Flowchart.ALGO", "c")).toBe("Il Mio  Flowchart.c");
+    expect(nomeDelCodice(".algo", "c")).toBe("codice.c");
+    expect(linguaggiOfferti(true).filter((l) => !Object.hasOwn(ESTENSIONI, l))).toEqual([]);
+    // Ogni linguaggio offerto ha il nome del suo tipo di file nella finestra, nelle due lingue dell'interfaccia.
+    expect(linguaggiOfferti(true).filter((l) => testiDellInterfaccia("it").tipiDelCodice[l] === undefined || testiDellInterfaccia("en").tipiDelCodice[l] === undefined)).toEqual([]);
+  });
+  test("il nome alternativo è il primo libero dopo quello proposto", () => {
+    const presi = new Set(["lettura-intero.c", "lettura-intero-2.c"]);
+    expect(altroNome("lettura-intero.c", (n) => presi.has(n))).toBe("lettura-intero-3.c");
+    expect(altroNome("lettura-intero.c", () => false)).toBe("lettura-intero-2.c");
+    expect(altroNome("Makefile", () => false)).toBe("Makefile-2");
+  });
+  test("il confronto col file che c'è: nuovo, uguale (anche coi fine riga CRLF), diverso per un carattere", () => {
+    const codice = "int main(void) {\n  return 0;\n}\n";
+    expect(confronto(null, codice)).toBe("nuovo");
+    expect(confronto(codice, codice)).toBe("uguale");
+    expect(confronto(codice.replace(/\n/g, "\r\n"), codice)).toBe("uguale");
+    // Controllo positivo: un carattere in più è «diverso», anche in fondo.
+    expect(confronto(`${codice} `, codice)).toBe("diverso");
+    expect(confronto("", codice)).toBe("diverso");
   });
 });
