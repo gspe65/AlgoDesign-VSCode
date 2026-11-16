@@ -10,7 +10,7 @@
 import type { EsitoDelControllo, LinguaDelCodice, MisuraDelTesto, Progetto } from "algodesign-core";
 import { appaiamento, blocchiSegnalati, type Bollino } from "../bollini";
 import { pezzi, SPECIE } from "../colori";
-import type { DallaPagina, Fotografia, FotografiaDelDisegno, Prova, Stato, VersoLaPagina, Vista } from "../messaggi";
+import type { DallaPagina, Fotografia, FotografiaDelDisegno, Prova, Salvataggio, Stato, VersoLaPagina, Vista } from "../messaggi";
 import { limitaIlDivisore, limitaLaScala, PASSO, PASSO_DEL_DIVISORE, scalaAdatta, valida } from "../vista";
 
 /** I nomi della finestra prima di ogni altra cosa della pagina (per la prova: quelli del pacchetto del nucleo non devono esserci). */
@@ -45,6 +45,8 @@ let prova: Prova = { misuraFissa: false, carattere: null };
 /** Il blocco mostrato dal clic su una segnalazione (resta evidenziato fino al clic successivo). */
 let evidenziato: { blocco: string | null; funzione: string; dove: string } | null = null;
 let codiceMostrato = "";
+/** Ciò che la pagina dice di «Salva il codice come…»; vale per il codice mostrato, e sparisce quando il codice cambia. */
+let salvataggio: Salvataggio = null;
 /** Il progetto del testo ricevuto, aperto una volta per testo. */
 let aperto: { testo: string | null; progetto: Progetto | null; controllo: EsitoDelControllo | null } = { testo: null, progetto: null, controllo: null };
 /** L'ultimo disegno fatto: per adattarlo all'area e per la fotografia. */
@@ -322,9 +324,46 @@ function divisore(s: Stato, corpo: HTMLElement): HTMLElement {
   return d;
 }
 
+// --- «Salva il codice come…».
+
+/** Il comando sopra il codice, con la riga del file salvato (o del motivo per cui non si è salvato). */
+function comandoDelSalvataggio(t: Stato["testi"]): HTMLElement {
+  const b = el("button", { type: "button", id: "salva-codice" }, t.salvaCodice);
+  b.addEventListener("click", () => manda({ tipo: "salva" }));
+  const riga = salvataggio?.stato === "salvato" ? el("span", { id: "salvato", class: "salvato" }, riempi(salvataggio.accanto ? t.salvatoAccanto : t.salvato, { file: salvataggio.file })) : salvataggio?.stato === "errore" ? el("span", { id: "salvato", class: "salvato errore" }, salvataggio.testo) : null;
+  return el("div", { class: "salvataggio" }, b, ...(riga === null ? [] : [riga]));
+}
+
+/** L'avviso prima della finestra: il file c'è ed è diverso. La scelta proposta è quella che non perde nulla. */
+function avvisoDelSalvataggio(t: Stato["testi"]): HTMLElement | null {
+  if (salvataggio?.stato !== "avviso") return null;
+  const altro = el("button", { type: "button", id: "salva-con-altro-nome", class: "primario" }, t.salvaConAltroNome);
+  altro.addEventListener("click", () => manda({ tipo: "salvaConAltroNome" }));
+  const sostituisci = el("button", { type: "button", id: "sostituisci" }, t.sostituisci);
+  sostituisci.addEventListener("click", () => manda({ tipo: "sostituisci" }));
+  const annulla = el("button", { type: "button", id: "annulla-salvataggio" }, t.annullaSalvataggio);
+  annulla.addEventListener("click", chiudiLAvviso);
+  const avviso = el("div", { id: "avviso-salvataggio", class: "avviso", role: "group", "aria-labelledby": "avviso-testo" }, el("p", { id: "avviso-testo" }, riempi(t.esisteDiverso, { file: salvataggio.file })), el("div", { class: "pulsanti" }, altro, sostituisci, annulla));
+  avviso.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    chiudiLAvviso();
+  });
+  return avviso;
+}
+
+function chiudiLAvviso(): void {
+  salvataggio = null;
+  if (stato !== null) disegna(stato);
+  document.getElementById("salva-codice")?.focus();
+}
+
 function disegna(s: Stato): void {
   const { modello: m, testi } = s;
   if (vista === null) vista = valida(s.vista);
+  // Ciò che la pagina dice del salvataggio vale per il codice mostrato: un altro codice (linguaggio, lingua, flowchart salvato in
+  // AlgoDesign) lo toglie.
+  if (salvataggio !== null && ("assente" in m.codice || `${s.scelta.linguaggio} ${s.scelta.lingua}\n${m.codice.testo}` !== codiceMostrato)) salvataggio = null;
   for (const sp of SPECIE) document.documentElement.style.setProperty(`--k-${sp}`, s.colori[sp]);
   if (schedaAttiva === null || !m.funzioni.some((f) => f.id === schedaAttiva)) schedaAttiva = m.funzioni[0]?.id ?? null;
   if (evidenziato !== null && !m.segnalazioni.some((v) => v.dove === evidenziato?.dove)) evidenziato = null;
@@ -386,9 +425,12 @@ function disegna(s: Stato): void {
     { class: "scelte" },
     gruppo(testi.linguaggio, s.offerti, s.scelta.linguaggio, (id) => manda({ tipo: "scegli", linguaggio: id })),
     gruppo(testi.lingua, s.lingue, s.scelta.lingua, (id) => manda({ tipo: "scegli", lingua: id as "it" | "en" })),
+    // Il codice assente (il flowchart ha errori) non si salva: il comando non c'è.
+    ...("assente" in m.codice ? [] : [comandoDelSalvataggio(testi)]),
   );
+  const avviso = avvisoDelSalvataggio(testi);
   const contenuto = "assente" in m.codice ? el("p", { id: "assente", class: "assente" }, m.codice.assente) : codice(m.codice.testo, s.scelta.linguaggio, testi.codiceIn.replace("{linguaggio}", nomeDelLinguaggio));
-  const destra = el("section", { class: "destra" }, scelte, ...(chiuso && m.segnalazioni.length > 0 ? [segnalazioni] : []), contenuto);
+  const destra = el("section", { class: "destra" }, scelte, ...(avviso === null ? [] : [avviso]), ...(chiuso && m.segnalazioni.length > 0 ? [segnalazioni] : []), contenuto);
 
   const corpo = el("div", { class: chiuso ? "corpo chiuso" : "corpo" });
   if (chiuso) corpo.append(destra);
@@ -531,6 +573,12 @@ function fotografia(): Fotografia {
     colori,
     fuoco: document.activeElement instanceof Element ? (document.activeElement.id || (document.activeElement as HTMLElement).dataset?.["scelta"] || (document.activeElement.getAttribute("data-id") !== null ? `bollino:${document.activeElement.getAttribute("data-id")}` : document.activeElement.tagName.toLowerCase())) : "",
     disegno: fotografiaDelDisegno(),
+    salvataggio: {
+      comando: document.getElementById("salva-codice")?.textContent ?? null,
+      avviso: document.getElementById("avviso-testo")?.textContent ?? null,
+      pulsanti: [...document.querySelectorAll<HTMLElement>("#avviso-salvataggio button")].map((b) => b.textContent ?? ""),
+      riga: document.getElementById("salvato")?.textContent ?? null,
+    },
     versione: stato?.versione ?? -1,
   };
 }
@@ -540,6 +588,14 @@ window.addEventListener("message", (e: MessageEvent<VersoLaPagina>) => {
   if (m.tipo === "stato") {
     stato = m.stato;
     disegna(m.stato);
+  } else if (m.tipo === "salvataggio") {
+    salvataggio = m.salvataggio;
+    if (stato !== null) disegna(stato);
+    // Il fuoco sulla scelta proposta dell'avviso; il file salvato e un errore li dice anche la lettura dello schermo.
+    if (salvataggio?.stato === "avviso") document.getElementById("salva-con-altro-nome")?.focus();
+    const detto = salvataggio?.stato === "avviso" ? document.getElementById("avviso-testo")?.textContent : document.getElementById("salvato")?.textContent;
+    const annuncio = document.getElementById("annuncio");
+    if (annuncio !== null && detto) annuncio.textContent = detto;
   } else if (m.tipo === "fotografia") manda({ tipo: "fotografia", id: m.id, fotografia: fotografia() });
   else if (m.tipo === "misura")
     manda({ tipo: "misura", id: m.id, misura: { rapportoDeiPixel: window.devicePixelRatio, larghezza: window.innerWidth, altezza: window.innerHeight, caratterePx: parseFloat(getComputedStyle(document.body).fontSize), nomiDellaFinestra: NOMI_DELLA_FINESTRA } });

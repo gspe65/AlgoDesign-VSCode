@@ -25,13 +25,16 @@
 // - i gesti del puntatore sul divisore (il trascinamento): si provano i tasti, che passano dallo stesso codice del valore;
 // - l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione ne ha due);
 // - la condizione del comando «Apri come testo» nella palette: si usa il pulsante della pagina;
-// - un editor diverso da quello dato con `--editor`; il primo piano del sistema.
+// - un editor diverso da quello dato con `--editor`; il primo piano del sistema;
+// - la finestra «Salva con nome» vera del sistema: nelle Actions nessuno la preme, e la sostituiscono le risposte preparate
+//   (`algo.prova.dialogo`), che dicono anche se e quando la pagina l'ha aperta; la finestra vera la prova chi usa l'estensione
+//   nel suo editor, col suo sistema.
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { linguaggiOfferti, modello, testiDellInterfaccia, type Libreria, type Modello } from "../src/documento";
+import { linguaggiOfferti, modello, riempi, testiDellInterfaccia, type Libreria, type Modello } from "../src/documento";
 import type { Fotografia } from "../src/messaggi";
 import { differenze, esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, LICENZA_DEL_NUCLEO, NUCLEO, RADICE, SORGENTI, vociDelloZip } from "../strumenti/comune";
 
@@ -43,8 +46,8 @@ const { values: opzioni } = parseArgs({
 
 /** I denominatori, dichiarati prima della corsa: le chiamate a `prova` senza editor, e quelle in più con l'editor. */
 const PROVE_SENZA_EDITOR = 25;
-const PROVE_DELL_EDITOR = 36;
-const TEST_ATTESI = 29;
+const PROVE_DELL_EDITOR = 44;
+const TEST_ATTESI = 32;
 
 /** Ciò che il pacchetto contiene, e nient'altro. */
 const NEL_PACCHETTO = ["[Content_Types].xml", "extension.vsixmanifest", "extension/LICENSE.txt", "extension/LICENZA-ALGODESIGN.txt", "extension/dist/extension.cjs", "extension/dist/libreria.cjs", "extension/dist/pagina.js", "extension/dist/pagina.css", "extension/icona.png", "extension/package.json", "extension/readme.md"];
@@ -322,6 +325,7 @@ async function nellEditor(eseguibile: string): Promise<void> {
   console.log(`editor: ${((performance.now() - inizio) / 1000).toFixed(1)} s`);
 
   type Attesa = { f: Fotografia | null; ms: number; riuscita: boolean };
+  type Domanda = { file: string; filtri: Record<string, string[]>; titolo: string };
   const e = JSON.parse(readFileSync(uscita, "utf8")) as {
     lingua: string;
     prima: Fotografia | null;
@@ -371,6 +375,33 @@ async function nellEditor(eseguibile: string): Promise<void> {
       nucleoMutato: Fotografia | null;
       nucleoRimesso: Fotografia | null;
       nucleoIntatto: boolean;
+    };
+    salva: {
+      prima: Fotografia | null;
+      inC: Fotografia | null;
+      colonnaDellaPagina: number;
+      salvato: Fotografia | null;
+      domandaNuovo: Domanda[];
+      attivo: { file: string | null; colonna: number | null };
+      scritto: string | null;
+      modificato: string | null;
+      avviso: Fotografia | null;
+      finestreConLAvviso: number;
+      altroNome: Fotografia | null;
+      domandaAltroNome: Domanda[];
+      scritto2: string | null;
+      modificatoDopoAltroNome: string | null;
+      sostituito: Fotografia | null;
+      finestreConSostituisci: number;
+      scrittoDopoSostituisci: string | null;
+      uguale: Fotografia | null;
+      finestreConUguale: number;
+      scrittoDopoAnnulla: string | null;
+      modificato2: string | null;
+      annullato: Fotografia | null;
+      dopoLAnnulla: string | null;
+      python: Fotografia | null;
+      domandaPython: Domanda[];
     };
   };
   // L'interfaccia nella lingua dell'editor (partito con --locale it): gli attesi la seguono.
@@ -485,6 +516,26 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const er = k.erratoRiaperto?.disegno;
   const fr = k.funzioniRiaperto?.disegno;
   prova("riaperti, ciascuno con la sua vista: lo zoom, il divisore", er?.divisore === 55 && er.adattata && vicino(fr?.scala, 0.8) && fr?.adattata === false && fr.divisore === 60 && k.divisoreFunzioni?.disegno.divisore === 60, JSON.stringify([er?.divisore, er?.adattata, fr?.scala, fr?.adattata, fr?.divisore]));
+
+  // --- «Salva il codice come…» (la finestra di Windows sostituita dalle risposte preparate: le domande dicono quando si apre).
+  const sv = e.salva;
+  const fileC = join(dove, "lettura-intero.c");
+  const fileC2 = join(dove, "lettura-intero-2.c");
+  const codiceC = "assente" in m0.codice ? "?" : m0.codice.testo;
+  const stesso = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const riga = (file: string) => riempi(testi.salvatoAccanto, { file });
+  const pulsantiAttesi = [testi.salvaConAltroNome, testi.sostituisci, testi.annullaSalvataggio];
+  const domandeDi = (d: Domanda[]) => d.map((x) => `${x.file} | ${JSON.stringify(x.filtri)} | ${x.titolo}`).join("; ");
+  prova("«Salva il codice come…» sopra il codice C; col codice assente (il flowchart con errori) il comando non c'è", sv.inC?.salvataggio.comando === testi.salvaCodice && e.errato?.salvataggio.comando === null, `${sv.inC?.salvataggio.comando} / ${e.errato?.salvataggio.comando}`);
+  prova("il file non c'è: la finestra nella cartella del flowchart col nome proposto, il tipo e il titolo; il file scritto è il codice della pagina, aperto accanto; la pagina dice dove", sv.domandaNuovo.length === 1 && stesso(sv.domandaNuovo[0]?.file ?? "", fileC) && JSON.stringify(sv.domandaNuovo[0]?.filtri) === JSON.stringify({ [testi.tipiDelCodice["c"] ?? "?"]: ["c"] }) && sv.domandaNuovo[0]?.titolo === testi.titoloDelSalvataggio && sv.scritto === codiceC && sv.inC?.codice === codiceDi(m0) && sv.salvato?.salvataggio.riga === riga("lettura-intero.c") && sv.attivo.file !== null && stesso(sv.attivo.file, fileC) && (sv.attivo.colonna ?? 0) > sv.colonnaDellaPagina, `${sv.salvato?.salvataggio.riga}; attivo ${JSON.stringify(sv.attivo)}, pagina ${sv.colonnaDellaPagina}; scritto ${sv.scritto === codiceC}`);
+  prova("il file c'è ed è diverso: l'avviso PRIMA della finestra (nessuna finestra aperta), coi tre pulsanti, il fuoco sulla scelta proposta", sv.modificato !== codiceC && sv.avviso?.salvataggio.avviso === riempi(testi.esisteDiverso, { file: "lettura-intero.c" }) && JSON.stringify(sv.avviso.salvataggio.pulsanti) === JSON.stringify(pulsantiAttesi) && sv.avviso.fuoco === "salva-con-altro-nome" && sv.finestreConLAvviso === 0, `${sv.avviso?.salvataggio.avviso} ${JSON.stringify(sv.avviso?.salvataggio.pulsanti)} fuoco ${sv.avviso?.fuoco}, finestre ${sv.finestreConLAvviso}`);
+  const dAltro = sv.domandaAltroNome[0];
+  prova("«Salva con un altro nome»: la finestra propone il primo nome libero; il nuovo file è il codice, quello modificato resta com'era", sv.domandaAltroNome.length === 1 && dAltro !== undefined && stesso(dAltro.file, fileC2) && JSON.stringify(dAltro.filtri) === JSON.stringify({ [testi.tipiDelCodice["c"] ?? "?"]: ["c"] }) && dAltro.titolo === testi.titoloDelSalvataggio && sv.scritto2 === codiceC && sv.modificatoDopoAltroNome === sv.modificato && sv.altroNome?.salvataggio.riga === riga("lettura-intero-2.c"), domandeDi(sv.domandaAltroNome));
+  prova("«Sostituisci»: nessuna finestra, il file è il codice della pagina, l'avviso sparisce", sv.finestreConSostituisci === 0 && sv.scrittoDopoSostituisci === codiceC && sv.sostituito?.salvataggio.avviso === null && sv.sostituito.salvataggio.riga === riga("lettura-intero.c"), `finestre ${sv.finestreConSostituisci}, uguale ${sv.scrittoDopoSostituisci === codiceC}`);
+  prova("il file c'è ed è uguale: la finestra, nessun avviso; «Annulla» nella finestra non scrive nulla", sv.finestreConUguale === 1 && sv.uguale?.salvataggio.avviso === null && sv.scrittoDopoAnnulla === codiceC, `finestre ${sv.finestreConUguale}, avviso ${sv.uguale?.salvataggio.avviso}`);
+  prova("«Annulla» nell'avviso: l'avviso sparisce, il file modificato resta, il fuoco torna al comando", sv.modificato2 !== codiceC && sv.annullato?.salvataggio.avviso === null && sv.dopoLAnnulla === sv.modificato2 && sv.annullato.fuoco === "salva-codice", `avviso ${sv.annullato?.salvataggio.avviso}, fuoco ${sv.annullato?.fuoco}`);
+  const dPy = sv.domandaPython[0];
+  prova("in Python il nome proposto è .py col suo tipo; il codice cambia e la riga del salvataggio sparisce", sv.domandaPython.length === 1 && dPy !== undefined && stesso(dPy.file, join(dove, "lettura-intero.py")) && JSON.stringify(dPy.filtri) === JSON.stringify({ [testi.tipiDelCodice["python"] ?? "?"]: ["py"] }) && sv.python?.salvataggio.riga === null, `${domandeDi(sv.domandaPython)}; riga ${sv.python?.salvataggio.riga}`);
 }
 
 if (opzioni.editor !== undefined) await nellEditor(opzioni.editor);

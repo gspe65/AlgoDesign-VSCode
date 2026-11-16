@@ -7,10 +7,12 @@
 // rispetto alla cartella aperta, e come «ultima» per i flowchart mai aperti; mai nelle impostazioni.
 
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import * as vscode from "vscode";
-import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modello, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Modello } from "./documento";
+import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modello, riempi, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Modello } from "./documento";
 import type { DallaPagina, Fotografia, Misura, Prova, Scelta, Stato, VersoLaPagina, Vista } from "./messaggi";
+import { altroNome, confronto, estensioneDel, nomeDelCodice } from "./salva";
 import { coloriDelTema } from "./tema";
 import { valida } from "./vista";
 
@@ -40,6 +42,10 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
   private ultimaFotografia = 0;
   /** Spento solo dalla prova con l'editor, per il suo controllo positivo: senza osservatore l'aggiornamento non arriva. */
   osservatoreAcceso = true;
+  /** Solo per la prova con l'editor (nelle Actions nessuno preme «Salva» nella finestra di Windows): le risposte della finestra,
+   *  un percorso o null per «Annulla», e le domande che le sono arrivate. Null: la finestra vera. */
+  risposteDelDialogo: (string | null)[] | null = null;
+  readonly domandeAlDialogo: { readonly file: string; readonly filtri: Record<string, string[]>; readonly titolo: string }[] = [];
 
   constructor(
     private readonly contesto: vscode.ExtensionContext,
@@ -188,6 +194,7 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
           await aperta.aggiorna();
         } else if (m.tipo === "vista") await this.ricordaVista(uri, m.vista);
         else if (m.tipo === "apriComeTesto") await apriComeTesto(uri);
+        else if ((m.tipo === "salva" || m.tipo === "salvaConAltroNome" || m.tipo === "sostituisci") && ultimo !== null) await this.salva(aperta, ultimo, m.tipo);
         else if (m.tipo === "fotografia" || m.tipo === "misura") {
           aperta.attese.get(m.id)?.(m.tipo === "misura" ? m.misura : m.fotografia);
           aperta.attese.delete(m.id);
@@ -200,6 +207,45 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
       if (![...this.aperte].some((a) => a.uri.toString() === uri.toString())) this.problemi.delete(uri);
     });
     await aperta.aggiorna();
+  }
+
+  /** «Salva il codice come…»: se il file proposto c'è ed è diverso, prima l'avviso nella pagina (nessuna finestra); se no la finestra
+   *  di Windows sulla cartella del flowchart col nome proposto. «Sostituisci» dall'avviso scrive senza finestra (la scelta è già
+   *  fatta), «Salva con un altro nome» propone il primo nome libero. Il file scritto si apre accanto alla pagina. */
+  private async salva(a: Aperta, s: Stato, come: "salva" | "salvaConAltroNome" | "sostituisci"): Promise<void> {
+    if ("assente" in s.modello.codice) return;
+    const codice = s.modello.codice.testo;
+    const cartella = vscode.Uri.joinPath(a.uri, "..");
+    const nome = nomeDelCodice(basename(a.uri.fsPath), s.scelta.linguaggio);
+    const proposto = vscode.Uri.joinPath(cartella, nome);
+    try {
+      let dove: vscode.Uri | undefined = proposto;
+      if (come !== "sostituisci") {
+        if (come === "salva" && confronto(await testoDi(proposto), codice) === "diverso") {
+          a.manda({ tipo: "salvataggio", salvataggio: { stato: "avviso", file: nome } });
+          return;
+        }
+        const iniziale = come === "salva" ? proposto : vscode.Uri.joinPath(cartella, altroNome(nome, (n) => existsSync(join(cartella.fsPath, n))));
+        dove = await this.finestraDelSalvataggio(iniziale, s);
+        // «Annulla» nella finestra: nulla cambia, nemmeno la pagina.
+        if (dove === undefined) return;
+      }
+      await scrivi(dove, codice);
+      await vscode.window.showTextDocument(dove, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      const accanto = vscode.Uri.joinPath(dove, "..").toString() === cartella.toString();
+      a.manda({ tipo: "salvataggio", salvataggio: { stato: "salvato", file: accanto ? basename(dove.fsPath) : vscode.workspace.asRelativePath(dove, false), accanto } });
+    } catch (e) {
+      a.manda({ tipo: "salvataggio", salvataggio: { stato: "errore", testo: riempi(s.testi.nonSalvato, { motivo: e instanceof Error ? e.message : String(e) }) } });
+    }
+  }
+
+  private finestraDelSalvataggio(iniziale: vscode.Uri, s: Stato): Thenable<vscode.Uri | undefined> {
+    const tipo = s.testi.tipiDelCodice[s.scelta.linguaggio] ?? s.testi.tipiDelCodice["pseudocodice"] ?? "";
+    const opzioni = { defaultUri: iniziale, filters: { [tipo]: [estensioneDel(s.scelta.linguaggio)] }, title: s.testi.titoloDelSalvataggio };
+    if (this.risposteDelDialogo === null) return vscode.window.showSaveDialog(opzioni);
+    this.domandeAlDialogo.push({ file: iniziale.fsPath, filtri: opzioni.filters, titolo: opzioni.title });
+    const r = this.risposteDelDialogo.shift();
+    return Promise.resolve(r === undefined || r === null ? undefined : vscode.Uri.file(r));
   }
 
   /** La pagina attiva, o l'ultima aperta. */
@@ -267,6 +313,35 @@ export const fornitoreDelTesto: vscode.TextDocumentContentProvider = {
     }
   },
 };
+
+/** Il documento aperto nell'editor per quel file, se c'è. */
+function documentoDi(uri: vscode.Uri): vscode.TextDocument | undefined {
+  return vscode.workspace.textDocuments.find((d) => d.uri.scheme === "file" && d.uri.fsPath.toLowerCase() === uri.fsPath.toLowerCase());
+}
+
+/** Il testo del file per il confronto: se è aperto nell'editor, quello che lo studente vede (anche non salvato); null se non c'è. */
+async function testoDi(uri: vscode.Uri): Promise<string | null> {
+  const d = documentoDi(uri);
+  if (d !== undefined) return d.getText();
+  try {
+    return Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** Scrive il codice nel file. Aperto nell'editor, passa dal documento e lo salva: scritto sotto i piedi del documento, l'editor
+ *  segnerebbe un conflitto con le modifiche non salvate. */
+async function scrivi(uri: vscode.Uri, testo: string): Promise<void> {
+  const d = documentoDi(uri);
+  if (d === undefined) {
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(testo, "utf8"));
+    return;
+  }
+  const modifica = new vscode.WorkspaceEdit();
+  modifica.replace(d.uri, new vscode.Range(0, 0, d.lineCount, 0), testo);
+  if (!(await vscode.workspace.applyEdit(modifica)) || !(await d.save())) throw new Error(basename(uri.fsPath));
+}
 
 async function apriComeTesto(uri: vscode.Uri): Promise<unknown> {
   const indirizzo = indirizzoDelTesto(uri);

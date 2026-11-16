@@ -36,6 +36,15 @@ export type Stato = {
   readonly versione: number;
 };
 
+/** Ciò che la pagina dice di «Salva il codice come…»: l'avviso prima della finestra (il file c'è ed è diverso), il file salvato,
+ *  o il motivo per cui non si è salvato. `file` è il nome come lo studente lo legge (accanto al flowchart, il solo nome). */
+export type Salvataggio =
+  | { readonly stato: "avviso"; readonly file: string }
+  /** `accanto`: nella cartella del flowchart, e la pagina lo dice (lo studente teme di non ritrovare il file). */
+  | { readonly stato: "salvato"; readonly file: string; readonly accanto: boolean }
+  | { readonly stato: "errore"; readonly testo: string }
+  | null;
+
 /** Il disegno come la pagina lo mostra, letto dal suo DOM. */
 export type FotografiaDelDisegno = {
   /** Se il file del nucleo è stato eseguito dalla pagina (il browser lo rifiuta se l'impronta non è quella dichiarata). */
@@ -88,6 +97,8 @@ export type Fotografia = {
   readonly fuoco: string;
   readonly colori: Readonly<Record<string, string | null>>;
   readonly disegno: FotografiaDelDisegno;
+  /** «Salva il codice come…»: se il comando c'è, l'avviso (il suo testo e i suoi pulsanti) e la riga del file salvato. */
+  readonly salvataggio: { readonly comando: string | null; readonly avviso: string | null; readonly pulsanti: readonly string[]; readonly riga: string | null };
   readonly versione: number;
 };
 
@@ -110,12 +121,15 @@ export type VersoLaPagina =
   | { readonly tipo: "clic"; readonly id: number; readonly selettore: string }
   | { readonly tipo: "tasto"; readonly id: number; readonly selettore: string; readonly tasto: string; readonly maiuscolo: boolean }
   | { readonly tipo: "misura"; readonly id: number }
-  | { readonly tipo: "prova"; readonly prova: Prova };
+  | { readonly tipo: "prova"; readonly prova: Prova }
+  | { readonly tipo: "salvataggio"; readonly salvataggio: Salvataggio };
 
 export type DallaPagina =
   | { readonly tipo: "pronta" }
   | { readonly tipo: "scegli"; readonly linguaggio?: string; readonly lingua?: "it" | "en" }
   | { readonly tipo: "vista"; readonly vista: Vista }
   | { readonly tipo: "apriComeTesto" }
+  /** «Salva il codice come…»; poi, dall'avviso, «Salva con un altro nome» o «Sostituisci». */
+  | { readonly tipo: "salva" | "salvaConAltroNome" | "sostituisci" }
   | { readonly tipo: "fotografia"; readonly id: number; readonly fotografia: Fotografia | null; readonly errore?: string }
   | { readonly tipo: "misura"; readonly id: number; readonly misura: Misura };

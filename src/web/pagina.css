@@ -51,6 +51,15 @@ button.voce:hover { background: none; color: var(--vscode-textLink-activeForegro
 .scelte { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
 .gruppo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .gruppo .etichetta { margin-right: 4px; }
+/* «Salva il codice come…», la riga del file salvato e l'avviso prima della finestra (il file c'è ed è diverso). */
+.salvataggio { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.salvato { color: var(--vscode-descriptionForeground); }
+.salvato.errore { color: var(--vscode-errorForeground); }
+.avviso { margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground)); background: var(--vscode-inputValidation-warningBackground, transparent); }
+.avviso p { margin: 0 0 8px; }
+.avviso .pulsanti { display: flex; flex-wrap: wrap; gap: 6px; }
+button.primario { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+button.primario:hover { background: var(--vscode-button-hoverBackground); }
 [role=radio][aria-checked=true] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-weight: 600; }
 pre#codice { margin: 0; height: calc(100vh - 130px); min-height: 200px; overflow: auto; padding: 6px 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); line-height: 1.45; border: 1px solid var(--vscode-panel-border, transparent); }
 .riga { display: flex; white-space: pre; }

@@ -1,9 +1,10 @@
-// Gira dentro l'editor: fa ciò che fa lo studente sulla pagina del flowchart (gli scenari S-E3a…d e S-E11) e scrive che cosa ha
+// Gira dentro l'editor: fa ciò che fa lo studente sulla pagina del flowchart (gli scenari S-E3a…d e S-E11, e «Salva il codice
+// come…») e scrive che cosa ha
 // visto. Non giudica nulla: i confronti stanno in `prova.ts`. La pagina si legge dal suo DOM con i comandi di prova dell'estensione,
 // che esistono solo con ALGO_PROVA=1; i clic sono clic veri sugli elementi della pagina, i tasti arrivano ai suoi gestori.
 
-const { readFileSync, renameSync, writeFileSync } = require("node:fs");
-const { join } = require("node:path");
+const { existsSync, readFileSync, renameSync, rmSync, writeFileSync } = require("node:fs");
+const { dirname, join } = require("node:path");
 const vscode = require("vscode");
 
 const { ALGO_FILE, ALGO_ERRATO, ALGO_FUNZIONI, ALGO_USCITA } = process.env;
@@ -203,6 +204,94 @@ exports.run = async () => {
   writeFileSync(libreria, byte);
   e11.nucleoRimesso = await apri(ALGO_FILE);
   e11.nucleoIntatto = Buffer.compare(readFileSync(libreria), byte) === 0;
+
+  // --- «Salva il codice come…». La finestra di Windows la sostituiscono le risposte preparate (nelle Actions nessuno preme
+  // «Salva»): un percorso, o null per «Annulla». Le domande che le arrivano dicono se e quando si è aperta.
+  const sv = (esiti.salva = {});
+  const fileC = join(dirname(ALGO_FILE), "lettura-intero.c");
+  const fileC2 = join(dirname(ALGO_FILE), "lettura-intero-2.c");
+  for (const f of [fileC, fileC2]) rmSync(f, { force: true });
+  const domande = async () => (await vscode.commands.executeCommand("algo.prova.dialogo")).domande.length;
+  const rispondi = (r) => vscode.commands.executeCommand("algo.prova.dialogo", r);
+  const leggi = (f) => (existsSync(f) ? readFileSync(f, "utf8") : null);
+  /** Lo studente modifica il file salvato nell'editor e lo salva. */
+  const modifica = async (f) => {
+    const d = await vscode.workspace.openTextDocument(f);
+    const m = new vscode.WorkspaceEdit();
+    m.insert(d.uri, new vscode.Position(0, 0), "// la mia modifica\n");
+    await vscode.workspace.applyEdit(m);
+    await d.save();
+  };
+  await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  sv.prima = await apri(ALGO_FILE);
+  // Il codice in C e in italiano, come nello scenario (il file ricorda Python e inglese dalle prove sopra).
+  if (!sv.prima?.linguaggi.find((x) => x.nome === "C")?.attivo) await clic('[data-scelta="c"]');
+  if (!(await foto())?.lingue[0]?.attivo) await clic('[data-scelta="it"]');
+  sv.inC = await foto();
+  sv.colonnaDellaPagina = vscode.window.tabGroups.activeTabGroup.viewColumn;
+
+  // 1. Il file non c'è: la finestra, «Salva».
+  await rispondi([fileC]);
+  await foto("#salva-codice");
+  sv.salvato = (await aspetta((f) => f.salvataggio.riga !== null, 5000)).f;
+  sv.domandaNuovo = (await vscode.commands.executeCommand("algo.prova.dialogo")).domande.slice(0);
+  for (let i = 0; i < 50 && vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() !== fileC.toLowerCase(); i++) await pausa(100);
+  sv.attivo = { file: vscode.window.activeTextEditor?.document.uri.fsPath ?? null, colonna: vscode.window.activeTextEditor?.viewColumn ?? null };
+  sv.scritto = leggi(fileC);
+
+  // 2. Lo studente lo modifica; «Salva il codice come…» di nuovo: l'avviso, prima della finestra.
+  await modifica(fileC);
+  sv.modificato = leggi(fileC);
+  let n = await domande();
+  await rispondi([]);
+  await foto("#salva-codice");
+  sv.avviso = (await aspetta((f) => f.salvataggio.avviso !== null, 5000)).f;
+  sv.finestreConLAvviso = (await domande()) - n;
+  // 2a. «Salva con un altro nome»: la finestra propone il primo nome libero.
+  n = await domande();
+  await rispondi([fileC2]);
+  await foto("#salva-con-altro-nome");
+  sv.altroNome = (await aspetta((f) => (f.salvataggio.riga ?? "").includes("lettura-intero-2.c"), 5000)).f;
+  sv.domandaAltroNome = (await vscode.commands.executeCommand("algo.prova.dialogo")).domande.slice(n);
+  sv.scritto2 = leggi(fileC2);
+  sv.modificatoDopoAltroNome = leggi(fileC);
+  // 2b. Di nuovo l'avviso, «Sostituisci»: nessuna finestra.
+  n = await domande();
+  await rispondi([]);
+  await foto("#salva-codice");
+  await aspetta((f) => f.salvataggio.avviso !== null, 5000);
+  await foto("#sostituisci");
+  sv.sostituito = (await aspetta((f) => f.salvataggio.avviso === null && (f.salvataggio.riga ?? "").includes("lettura-intero.c"), 5000)).f;
+  sv.finestreConSostituisci = (await domande()) - n;
+  sv.scrittoDopoSostituisci = leggi(fileC);
+
+  // 3. Il file c'è ed è uguale: la finestra (nessun avviso); «Annulla» nella finestra non scrive nulla.
+  n = await domande();
+  await rispondi([null]);
+  await foto("#salva-codice");
+  await pausa(1500);
+  sv.uguale = await foto();
+  sv.finestreConUguale = (await domande()) - n;
+  sv.scrittoDopoAnnulla = leggi(fileC);
+
+  // 4. «Annulla» nell'avviso: l'avviso sparisce, il file resta com'è, il fuoco torna al comando.
+  await modifica(fileC);
+  sv.modificato2 = leggi(fileC);
+  await rispondi([]);
+  await foto("#salva-codice");
+  await aspetta((f) => f.salvataggio.avviso !== null, 5000);
+  sv.annullato = await foto("#annulla-salvataggio");
+  sv.dopoLAnnulla = leggi(fileC);
+
+  // 5. In Python: il nome .py col suo tipo; il codice cambia, la riga del salvataggio sparisce.
+  await clic('[data-scelta="python"]');
+  sv.python = await foto();
+  n = await domande();
+  await rispondi([null]);
+  await foto("#salva-codice");
+  await pausa(1000);
+  sv.domandaPython = (await vscode.commands.executeCommand("algo.prova.dialogo")).domande.slice(n);
+  await rispondi(null);
 
   writeFileSync(ALGO_USCITA, JSON.stringify(esiti));
 };
