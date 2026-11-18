@@ -2,7 +2,7 @@
   "name": "AlgoDesign-Code",
   "displayName": "AlgoDesign: codice dai flowchart",
   "description": "Apre i file .algo in una pagina in sola lettura: il disegno del flowchart e il codice generato in C o in Python, con gli errori e gli avvisi.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "gilan65",
   "license": "MIT",
   "private": true,
@@ -13,7 +13,7 @@
   "contributes": {
     "languages": [{ "id": "algo", "aliases": ["Flowchart AlgoDesign"], "extensions": [".algo"], "icon": { "light": "./icona.png", "dark": "./icona.png" } }],
     "customEditors": [{ "viewType": "algo.pagina", "displayName": "Flowchart di AlgoDesign", "selector": [{ "filenamePattern": "*.algo" }], "priority": "default" }],
-    "commands": [{ "command": "algo.apriComeTesto", "title": "Apri come testo", "category": "AlgoDesign" }],
+    "commands": [{ "command": "algo.apriComeTesto", "title": "Apri il file come testo", "category": "AlgoDesign" }],
     "menus": {
       "commandPalette": [{ "command": "algo.apriComeTesto", "when": "activeCustomEditorId == algo.pagina" }]
     },

@@ -46,6 +46,8 @@ if ((NUCLEO.costruzione === undefined) === (NUCLEO.zip === undefined || NUCLEO.f
   fermo("nucleo.json vuole uno dei due modi: zip e file della release, oppure costruzione dai sorgenti");
 /** L'impronta che il file del nucleo deve avere, nell'uno o nell'altro modo. */
 export const IMPRONTA_DEL_NUCLEO: string = NUCLEO.costruzione?.sha256 ?? NUCLEO.file!.sha256;
+/** I byte che il file del nucleo deve avere: dichiarati nel modo della costruzione; null nel modo della release (lì vale l'impronta). */
+export const BYTE_DEL_NUCLEO: number | null = NUCLEO.costruzione?.byte ?? null;
 /** Dove `bun run nucleo` mette ciò che scarica (cartella ignorata). */
 export const CARTELLA_DEL_NUCLEO = join(RADICE, "nucleo");
 export const FILE_DEL_NUCLEO = join(CARTELLA_DEL_NUCLEO, "algodesign-core.cjs");

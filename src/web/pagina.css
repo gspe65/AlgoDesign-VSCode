@@ -48,7 +48,9 @@ button.voce { text-decoration: underline; text-underline-offset: 2px; }
 button.voce:hover { background: none; color: var(--vscode-textLink-activeForeground); }
 .spiegazione { margin: 3px 0 0; }
 .vuoto { color: var(--vscode-descriptionForeground); }
-.scelte { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; }
+.titolo-del-codice { font-size: 1.05em; margin: 0 0 6px; }
+.scelte { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 8px; padding: 2px 0; background: var(--vscode-editor-background); }
+.comandi-del-codice { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .gruppo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .gruppo .etichetta { margin-right: 4px; }
 /* «Salva il codice come…», la riga del file salvato e l'avviso prima della finestra (il file c'è ed è diverso). */
@@ -60,10 +62,16 @@ button.voce:hover { background: none; color: var(--vscode-textLink-activeForegro
 .avviso .pulsanti { display: flex; flex-wrap: wrap; gap: 6px; }
 button.primario { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
 button.primario:hover { background: var(--vscode-button-hoverBackground); }
+/* «Sostituisci» fa perdere le modifiche: il colore d'avviso del tema, nel testo e nel bordo, diverso da «Annulla». */
+button.perde { color: var(--vscode-errorForeground); border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground)); }
+.segno-avviso { font-weight: 700; }
 [role=radio][aria-checked=true] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-weight: 600; }
-pre#codice { margin: 0; height: calc(100vh - 130px); min-height: 200px; overflow: auto; padding: 6px 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); line-height: 1.45; border: 1px solid var(--vscode-panel-border, transparent); }
-.riga { display: flex; white-space: pre; }
-.riga .n { flex: none; width: 4ch; padding-right: 1.5ch; text-align: right; color: var(--vscode-editorLineNumber-foreground); user-select: none; }
+pre#codice { margin: 0; height: calc(100vh - 160px); min-height: 200px; overflow: auto; padding: 6px 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); line-height: 1.45; border: 1px solid var(--vscode-panel-border, transparent); }
+/* Una riga che non ci sta va a capo (niente scorrimento orizzontale), e il seguito parte quattro caratteri più a destra del
+   rientro della riga (--rientro, in caratteri, messo dalla pagina): la prima riga resta dov'è, col suo rientro scritto in spazi. */
+.riga { display: flex; }
+.riga .n { flex: none; width: 4ch; padding-right: 1.5ch; text-align: right; color: var(--vscode-editorLineNumber-foreground); user-select: none; white-space: pre; }
+.riga .t { --rientro: 0; display: block; flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: calc((var(--rientro) + 4) * 1ch); text-indent: calc((var(--rientro) + 4) * -1ch); }
 .assente { padding: 10px; border: 1px solid var(--vscode-panel-border, currentColor); }
 .k-commento { color: var(--k-commento); } .k-parolaChiave { color: var(--k-parolaChiave); } .k-tipo { color: var(--k-tipo); }
 .k-stringa { color: var(--k-stringa); } .k-numero { color: var(--k-numero); } .k-funzione { color: var(--k-funzione); }
@@ -73,7 +81,12 @@ pre#codice { margin: 0; height: calc(100vh - 130px); min-height: 200px; overflow
   .corpo, .corpo.chiuso { grid-template-columns: minmax(0, 1fr); }
   .divisore { display: none; }
   .sinistra { height: auto; min-height: 0; }
-  /* Più basso che a due colonne: con lo zoom dell'editor «Errori e avvisi» resta vicino al disegno (rilievo del valutatore). */
+  /* Più basso che a due colonne: con lo zoom dell'editor «Errori e avvisi» resta vicino al disegno, senza scorrere la pagina. */
   .foglio { height: 45vh; flex: none; }
   .segnalazioni { max-height: none; }
+  /* Scorrendo la pagina verso il codice, la barra del linguaggio, della lingua e dei comandi resta in vista in cima (anche con
+     l'avviso del salvataggio o le segnalazioni fra barra e codice); il codice prende la finestra sotto la barra (--barra, la sua
+     altezza, messa dalla pagina), e mai meno di metà. */
+  .destra .scelte { position: sticky; top: 0; z-index: 1; margin-bottom: 0; padding: 4px 0 6px; }
+  pre#codice { height: max(50vh, calc(100vh - var(--barra, 40px) - 2px)); min-height: 50vh; }
 }

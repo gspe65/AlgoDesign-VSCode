@@ -6,8 +6,8 @@
 //            --rapporto <file>         scrive l'esito in JSON (sistema, impronta del pacchetto, prove, fallite, esito)
 //
 // L'editor della prova è in inglese: con un profilo nuovo `--locale it` non basta, e nemmeno il pacchetto della lingua copiato fra
-// le estensioni (misurato: la lingua la decide `languagepacks.json` del profilo). La pagina in italiano la provano il modello qui
-// sotto e l'editor dell'unità.
+// le estensioni (misurato: la lingua la decide `languagepacks.json` del profilo). La pagina in italiano la prova il modello qui
+// sotto (le frasi e i nomi dei pulsanti), non l'editor indicato.
 //
 // Atteso: ESITO: VERDE, prove N/N. Uscite: 0 verde, 1 rosso, 2 fermo (non si è potuto misurare). Prima: bun run nucleo.
 //
@@ -18,13 +18,16 @@
 //   vero chiuso dalla X);
 // - che un file aperto una volta come testo resti testo: nell'editor vero succede, in modalità di prova no (misurato: il
 //   controllo positivo non si accende), quindi la prova sta nella misura con l'editor vero, non qui;
-// - l'aspetto della pagina (colori dei comandi, spaziature, contrasto) e ciò che la lettura dello schermo pronuncia davvero (qui
-//   solo i nomi scritti nel DOM): il giro col valutatore;
+// - l'aspetto della pagina (spaziature, contrasto; dei colori solo che «Sostituisci» si distingua da «Annulla») e ciò che la
+//   lettura dello schermo pronuncia davvero (qui solo i nomi scritti nel DOM): lo guarda una persona, con la pagina aperta;
+// - la pagina a una colonna in una finestra stretta davvero: la si ottiene con lo zoom dell'editor, come chi ingrandisce;
 // - il disegno con la misura VERA confrontato coi byte del nucleo: dipende dai caratteri della macchina; si confronta con la misura
 //   fissa della conformità, e della misura vera si prova che il canvas tiene il carattere chiesto;
 // - i gesti del puntatore sul divisore (il trascinamento): si provano i tasti, che passano dallo stesso codice del valore;
 // - l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione ne ha due);
-// - la condizione del comando «Apri come testo» nella palette: si usa il pulsante della pagina;
+// - la condizione del comando «Apri il file come testo» nella palette: si usa il pulsante della pagina;
+// - due aggiornamenti in volo che finiscono al contrario, nell'editor: l'ordine si prova senza editor, sulla regola (`ordine.ts`);
+// - il nucleo dell'estensione cambiato prima dell'avvio dell'editor: la verifica si prova senza editor, su una copia del file;
 // - un editor diverso da quello dato con `--editor`; il primo piano del sistema;
 // - la finestra «Salva con nome» vera del sistema: nelle Actions nessuno la preme, e la sostituiscono le risposte preparate
 //   (`algo.prova.dialogo`), che dicono anche se e quando la pagina l'ha aperta; la finestra vera la prova chi usa l'estensione
@@ -32,11 +35,13 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { linguaggiOfferti, modello, riempi, testiDellInterfaccia, type Libreria, type Modello } from "../src/documento";
 import type { Fotografia } from "../src/messaggi";
+import { DIMENSIONE_DEL_CARATTERE } from "../src/vista";
 import { differenze, esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, LICENZA_DEL_NUCLEO, NUCLEO, RADICE, SORGENTI, vociDelloZip } from "../strumenti/comune";
+import { PREVISTE } from "./conteggio";
 
 const { values: opzioni } = parseArgs({
   args: Bun.argv.slice(2),
@@ -45,9 +50,9 @@ const { values: opzioni } = parseArgs({
 });
 
 /** I denominatori, dichiarati prima della corsa: le chiamate a `prova` senza editor, e quelle in più con l'editor. */
-const PROVE_SENZA_EDITOR = 25;
-const PROVE_DELL_EDITOR = 44;
-const TEST_ATTESI = 32;
+const PROVE_SENZA_EDITOR = 28;
+const PROVE_DELL_EDITOR = 54;
+const TEST_ATTESI = 40;
 
 /** Ciò che il pacchetto contiene, e nient'altro. */
 const NEL_PACCHETTO = ["[Content_Types].xml", "extension.vsixmanifest", "extension/LICENSE.txt", "extension/LICENZA-ALGODESIGN.txt", "extension/dist/extension.cjs", "extension/dist/libreria.cjs", "extension/dist/pagina.js", "extension/dist/pagina.css", "extension/icona.png", "extension/package.json", "extension/readme.md"];
@@ -62,12 +67,22 @@ const IMPORT_DELLA_PAGINA: string[] = [];
 const PERCORSO_ASSOLUTO = /(?<![A-Za-z])[A-Za-z]:[\\/]/;
 /** Stringhe che nel pacchetto non devono esserci: il motore con cui si costruisce e si prova. */
 const VIETATE = [/bun:/, /Bun\./];
+/** Parole del lavoro su questo repository che nel pacchetto non devono esserci (il foglio di stile e il README ci vanno così come
+ *  sono). Si compongono qui a pezzi: scritte per intero, questo file (pubblico) le conterrebbe. Le ultime due come parole intere:
+ *  una parola più lunga che le contiene no. */
+const parola = (...pezzi: string[]): string => pezzi.join("");
+const LESSICO = [new RegExp(parola("ril", "ievo"), "gi"), new RegExp(parola("valut", "atore"), "gi"), new RegExp(parola("giro", " con"), "gi"), new RegExp(`(?<![\\p{L}\\p{N}_])(?:${parola("My", "Dev")}|${parola("uni", "tà")})(?![\\p{L}\\p{N}_])`, "giu")];
+/** Colpi noti e attesi: il file del nucleo, di AlgoDesign e confrontato per impronta, nomina due volte gli elementi di codice
+ *  UTF-16 in un suo testo, con la quinta parola del lessico. Si tolgono contandoli: un numero diverso è un motivo. */
+const NOTI_NEL_NUCLEO = { voce: "extension/dist/libreria.cjs", testo: `${parola("uni", "tà")} UTF-16`, quanti: 2 };
 
-/** I due file veri del corpus di AlgoDesign degli scenari S-E3: uno che genera, uno che non genera (una segnalazione). */
+/** I due file veri del corpus di AlgoDesign delle scelte del codice: uno che genera, uno che non genera (una segnalazione). */
 const FILE = "tappa-1/lettura-intero";
 const ERRATO = "tappa-2/per-passo-zero";
-/** Un file vero con più funzioni (S-E11: una scheda per funzione). */
+/** Un file vero con più funzioni (una scheda per funzione). */
 const FUNZIONI = "tappa-3/copia-di-un-vettore";
+/** Un file vero con un avviso e nessun errore (il codice c'è). */
+const AVVISO = "tappa-1/divisione-intera-in-reale";
 
 if (!existsSync(FILE_DEL_NUCLEO) || !existsSync(join(SORGENTI, ".git"))) fermo("manca il nucleo: prima bun run nucleo");
 if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== IMPRONTA_DEL_NUCLEO) fermo("il file del nucleo non ha l'impronta di nucleo.json: si rifà bun run nucleo");
@@ -120,6 +135,18 @@ prova("la logica, senza editor", test.uscita === 0 && numero("tests") === TEST_A
 
 // --- Il verdetto sul pacchetto: una funzione sola, per il file vero e per le mutazioni. Vuoto è verde; ogni motivo nomina la voce.
 const colpiIn = (testo: string): string[] => [PERCORSO_ASSOLUTO, ...VIETATE].flatMap((rx) => rx.exec(testo)?.[0] ?? []);
+/** Le parole del lessico in una voce, ognuna col suo motivo; nel file del nucleo, tolti i colpi noti (contati). */
+function lessicoIn(voce: string, testo: string): string[] {
+  const motivi: string[] = [];
+  let t = testo;
+  if (voce === NOTI_NEL_NUCLEO.voce) {
+    const n = t.split(NOTI_NEL_NUCLEO.testo).length - 1;
+    if (n !== NOTI_NEL_NUCLEO.quanti) motivi.push(`${voce}: «${NOTI_NEL_NUCLEO.testo}» ${n} volte, attese ${NOTI_NEL_NUCLEO.quanti}`);
+    t = t.replaceAll(NOTI_NEL_NUCLEO.testo, "");
+  }
+  for (const rx of LESSICO) for (const m of t.matchAll(rx)) motivi.push(`${voce}: la parola «${m[0]}»`);
+  return motivi;
+}
 const importDi = (testo: string): string[] => [...new Set(new Bun.Transpiler({ loader: "js" }).scanImports(testo).map((i) => i.path))].sort();
 type ManifestoDelleIcone = { icon?: string; license?: string; contributes?: { languages?: { id: string; extensions?: string[]; icon?: { light?: string; dark?: string } }[] } };
 /** Il manifesto dà l'icona al pannello e al linguaggio dei file `.algo`, chiara e scura. */
@@ -159,6 +186,7 @@ function motiviDelleVoci(voci: ReadonlyMap<string, Uint8Array>): string[] {
   if (vsixManifest !== undefined && !new TextDecoder().decode(vsixManifest).includes("<License>extension/LICENSE.txt</License>")) motivi.push("extension.vsixmanifest: non indica la licenza");
   // Ogni voce tranne l'icona, che è un'immagine confrontata per impronta: anche le voci in più.
   for (const [v, d] of voci) if (v !== "extension/icona.png") for (const c of colpiIn(new TextDecoder().decode(d))) motivi.push(`${v}: ${c}`);
+  for (const [v, d] of voci) if (v !== "extension/icona.png") motivi.push(...lessicoIn(v, new TextDecoder().decode(d)));
   return motivi;
 }
 /** Il verdetto su un file: uno zip che non si legge è un rosso di questa prova, col motivo, come ogni altro. */
@@ -181,7 +209,9 @@ const voci = (() => {
   }
 })();
 console.log(`voci: ${voci.size}, attese ${NEL_PACCHETTO.length}; voci di testo guardate dai cercatori ${[...voci.keys()].filter((v) => v !== "extension/icona.png").length}; motivi ${motiviVeri.length}`);
-prova("il pacchetto: le voci attese nei due versi, i file del repository, il file e la licenza del nucleo, l'icona, gli import, il manifesto, nessun percorso assoluto né stringa vietata", motiviVeri.length === 0, motiviVeri.join("; "));
+const nelNucleo = voci.get(NOTI_NEL_NUCLEO.voce);
+console.log(`lessico: ${LESSICO.length} parole cercate in ${[...voci.keys()].filter((v) => v !== "extension/icona.png").length} voci; colpi noti nel file del nucleo ${nelNucleo === undefined ? "?" : new TextDecoder().decode(nelNucleo).split(NOTI_NEL_NUCLEO.testo).length - 1}, attesi ${NOTI_NEL_NUCLEO.quanti}`);
+prova("il pacchetto: le voci attese nei due versi, i file del repository, il file e la licenza del nucleo, l'icona, gli import, il manifesto, nessun percorso assoluto, stringa vietata né parola del lessico", motiviVeri.length === 0, motiviVeri.join("; "));
 
 // Il lettore dello zip di queste prove contro un lettore del sistema, sullo stesso file: lo stesso elenco nei due versi, e ogni
 // voce con gli stessi byte. Su Windows il `tar` di System32 (quello di una shell può essere GNU tar, che uno zip non lo apre);
@@ -270,6 +300,14 @@ const assoluto = (disco: string, barra: string): string => `${disco}:${barra}`;
   const m = mutata((v) => (v.set(EXTRA, testo(`module.exports = ["${assoluto("C", "\\\\")}a", "${assoluto("D", "/")}b", "bun:sqlite", "Bun.spawn"];`)), 1));
   mutazione("una voce in più con un percorso assoluto e le stringhe vietate", m.toccate, motiviDelleVoci(m.voci), [`voce in più: ${EXTRA}`, `${EXTRA}: ${assoluto("C", "\\")}`, `${EXTRA}: bun:`, `${EXTRA}: Bun.`]);
 }
+{
+  // Le parole del lessico in una voce che non si confronta col repository (la pagina): ciascuna col suo motivo, anche con le
+  // maiuscole; una parola più lunga che ne contiene una no.
+  const PAGINA = "extension/dist/pagina.js";
+  const [p1, p2, p3, p4, p5, p6] = [parola("ril", "ievo"), parola("Valut", "atore"), parola("giro", " con"), parola("My", "Dev"), parola("Uni", "tà"), parola("comun", "ità")];
+  const m = mutata((v) => (v.set(PAGINA, Buffer.concat([v.get(PAGINA) ?? new Uint8Array(), Buffer.from(`\n/* il ${p1} del ${p2}, un ${p3} ${p4} nell'${p5} della ${p6} */`)])), 1));
+  mutazione("le parole del lessico nella pagina", m.toccate, motiviDelleVoci(m.voci), [p1, p2, p3, p4, p5].map((p) => `${PAGINA}: la parola «${p}»`));
+}
 const troncato = pacchetto.subarray(0, pacchetto.length - 30);
 mutazione("un pacchetto troncato", pacchetto.length - troncato.length, motiviDelFile(troncato), ["il pacchetto non si legge: manca la fine dell'indice"]);
 prova("mutazione: un percorso assoluto si vede, con la barra e con la rovescia", colpiIn(`x = '${assoluto("D", "/")}a'`).length === 1 && colpiIn(`x = '${assoluto("C", "\\")}a'`).length === 1);
@@ -290,6 +328,16 @@ prova("mutazione: un linguaggio fuori registro si vede", differenze([...linguagg
   );
 }
 prova("mutazione: il lettore del sistema con una voce in più non torna", differenze(voci.keys(), [...contenuto, "extension/x"]).soloB.join() === "extension/x");
+
+// --- Il conteggio dei rapporti della corsa: le sue sonde, un rosso per ramo (prove/conteggio.ts --sonde), e le prove che attende
+// per ogni sistema contro quelle che dichiara questa prova per la corsa (col pacchetto dato, quindi senza la costruzione).
+const sondeDelConteggio = esegui(["bun", join(RADICE, "prove", "conteggio.ts"), "--sonde"]);
+console.log(sondeDelConteggio.testo.trim());
+prova("il conteggio dei rapporti: ogni ramo rosso si accende da solo, il verde resta verde", sondeDelConteggio.uscita === 0 && /^ESITO: VERDE/m.test(sondeDelConteggio.testo) && /^sonde: \d+ \(1 verde, \d+ rami rossi\); sbagliate 0;/m.test(sondeDelConteggio.testo), sondeDelConteggio.testo);
+const dellaCorsa = PROVE_SENZA_EDITOR - 1 + PROVE_DELL_EDITOR;
+const conteggioDiverso = Object.entries(PREVISTE).filter(([, n]) => n !== dellaCorsa).map(([s, n]) => `${s} ${n}`);
+console.log(`prove della corsa: ${PROVE_SENZA_EDITOR - 1} senza editor + ${PROVE_DELL_EDITOR} con l'editor = ${dellaCorsa}; attese dal conteggio ${Object.entries(PREVISTE).map(([s, n]) => `${s} ${n}`).join(", ")}`);
+prova("il conteggio attende per ogni sistema le prove che questa prova dichiara per la corsa", Object.keys(PREVISTE).length === 3 && conteggioDiverso.length === 0, conteggioDiverso.join(", "));
 
 // --- Nell'editor dato.
 async function nellEditor(eseguibile: string): Promise<void> {
@@ -312,12 +360,27 @@ async function nellEditor(eseguibile: string): Promise<void> {
   writeFileSync(fileAlgo, originale);
   writeFileSync(fileErrato, originaleErrato);
   writeFileSync(fileFunzioni, originaleFunzioni);
+  // Il flowchart vero con un avviso e nessun errore.
+  const fileAvviso = join(dove, "divisione-intera-in-reale.algo");
+  const originaleAvviso = readFileSync(join(casi, ...`${AVVISO}.algo`.split("/")));
+  writeFileSync(fileAvviso, originaleAvviso);
+  // Il primo flowchart con una riga lunga (una frase scritta prima del numero), in un file col nome che ha le parentesi dei modelli
+  // dei file: `[1]` e `{a}` letti come modello varrebbero per «prova 1 a.algo», non per lui.
+  const fileParentesi = join(dove, "prova [1] {a}.algo");
+  const conRigaLunga = JSON.parse(originale.toString("utf8")) as { metadata: { name: string }; functions: { body: { values?: string[] }[] }[] };
+  conRigaLunga.metadata.name = "riga-lunga";
+  conRigaLunga.functions[0]!.body[1]!.values = ['"Il doppio del numero letto, scritto per intero perché la riga del codice continui ben oltre il bordo del riquadro e debba andare a capo: anche in una finestra larga, con il riquadro del codice a tutta larghezza, questa riga non ci sta; il doppio è "', "n * 2"];
+  const originaleParentesi = Buffer.from(`${JSON.stringify(conRigaLunga, null, 2)}\n`);
+  writeFileSync(fileParentesi, originaleParentesi);
+  const mLunga = modello(libreria, originaleParentesi.toString("utf8"), "c", "it", "en");
+  const rigaPiuLunga = "assente" in mLunga.codice ? 0 : Math.max(...mLunga.codice.testo.split("\n").map((r) => r.length));
+  console.log(`il flowchart con la riga lunga: codice ${"assente" in mLunga.codice ? "assente" : "c'è"}, la riga più lunga ${rigaPiuLunga} caratteri`);
 
   const uscita = join(cartella, "esiti.json");
   const dati = join(cartella, "dati  editor");
   console.log(`APRO L'EDITOR: ${eseguibile}, una finestra per pochi secondi, con un profilo temporaneo`);
   const inizio = performance.now();
-  const ambiente = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_ERRATO: fileErrato, ALGO_FUNZIONI: fileFunzioni, ALGO_USCITA: uscita });
+  const ambiente = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_ERRATO: fileErrato, ALGO_FUNZIONI: fileFunzioni, ALGO_PARENTESI: fileParentesi, ALGO_AVVISO: fileAvviso, ALGO_USCITA: uscita });
   const figlio = Bun.spawn([node, join(RADICE, "prove", "lancia.cjs"), eseguibile, join(estratto, "extension"), dove, dati, ambiente], { cwd: cartella, stdout: "pipe", stderr: "pipe" });
   const [fuori, errori] = await Promise.all([new Response(figlio.stdout).text(), new Response(figlio.stderr).text()]);
   const codiceUscita = await figlio.exited;
@@ -354,7 +417,10 @@ async function nellEditor(eseguibile: string): Promise<void> {
     senzaOsservatore: Attesa;
     rimesso: Fotografia | null;
     fileIntatto: boolean;
-    e11: {
+    tenuta: { allaFunzione: Fotografia | null; allaPrincipale: Fotografia | null; prima: Fotografia | null; altraAttiva: string; gruppi: number; tornata: Fotografia | null };
+    parentesi: { prima: Fotografia | null; cambiatoDiverso: boolean; aggiornamento: Attesa; rimesso: Fotografia | null; intatto: boolean };
+    avviso: { pagina: Fotografia | null; problemi: { messaggio: string; gravita: number }[] };
+    disegno: {
       errato: Fotografia | null;
       dalBollino: Fotografia | null;
       dalBollinoConInvio: Fotografia | null;
@@ -402,6 +468,12 @@ async function nellEditor(eseguibile: string): Promise<void> {
       dopoLAnnulla: string | null;
       python: Fotografia | null;
       domandaPython: Domanda[];
+      colonna: { passi: number; f: Fotografia | null };
+      fileAltrove: string;
+      altrove: Fotografia | null;
+      scrittoAltrove: string | null;
+      nonScrivibile: string;
+      errore: Fotografia | null;
     };
   };
   // L'interfaccia nella lingua dell'editor (partito con --locale it): gli attesi la seguono.
@@ -418,28 +490,29 @@ async function nellEditor(eseguibile: string): Promise<void> {
   prova("la prima volta C in italiano; le scelte sono esattamente Python e C, italiano e inglese", scelte(p) === `${testi.linguaggi["c"]} ${testi.lingue.it}` && p?.linguaggi.map((x) => x.nome).join() === linguaggiOfferti(false).map((l) => testi.linguaggi[l]).join() && p?.lingue.map((x) => x.nome).join() === `${testi.lingue.it},${testi.lingue.en}`, JSON.stringify([p?.linguaggi, p?.lingue]));
   prova("il codice C sulla pagina è quello del nucleo", p?.codice === codiceDi(m0), `${p?.codice?.slice(0, 200)}`);
   prova("il codice si apre sulla riga di main", "rigaDiMain" in m0.codice && p?.rigaInCima === m0.codice.rigaDiMain, `in cima ${p?.rigaInCima}, main ${"rigaDiMain" in m0.codice ? m0.codice.rigaDiMain : "-"}`);
+  prova("sopra il codice il titolo «Codice generato dal flowchart»; «Apri il file come testo» col suo suggerimento", p?.titoloDelCodice === testi.titoloDelCodice && (p.testoVisibile.includes(testi.titoloDelCodice) ?? false) && p.pulsanteDelTesto?.testo === testi.apriComeTesto && p.pulsanteDelTesto.suggerimento === testi.apriComeTestoSuggerimento, JSON.stringify([p?.titoloDelCodice, p?.pulsanteDelTesto]));
   const rgb = (h: string) => `rgb(${parseInt(h.slice(1, 3), 16)}, ${parseInt(h.slice(3, 5), 16)}, ${parseInt(h.slice(5, 7), 16)})`;
   const coloriDiversi = Object.entries(p?.colori ?? {}).filter(([s, c]) => c !== null && c !== rgb(e.colori.colori[s] ?? "")).map(([s, c]) => `${s} ${c} invece di ${e.colori.colori[s]}`);
   const coloriVisti = Object.values(p?.colori ?? {}).filter((c) => c !== null).length;
   console.log(`colori sulla pagina: ${coloriVisti} specie viste nel codice, diverse dal tema ${coloriDiversi.length}`);
   prova("i colori del codice sono quelli del tema in uso, letto dal suo file", e.colori.fonte.startsWith("tema ") && e.colori.dalTema.length >= 4 && coloriVisti >= 4 && coloriDiversi.length === 0, `${e.colori.fonte}; ${coloriDiversi.join("; ")}`);
-  prova("S-E3a: «Python» → il codice Python, in un passo", scelte(e.python) === `Python ${testi.lingue.it}` && e.python?.codice === codiceDi(atteso(originale, "python", "it")), scelte(e.python));
-  prova("S-E3a: «inglese» → il codice Python in inglese, in un passo", scelte(e.inglese) === `Python ${testi.lingue.en}` && e.inglese?.codice === codiceDi(atteso(originale, "python", "en")), scelte(e.inglese));
-  prova("RU-02: un flowchart mai aperto prende l'ultima scelta", scelte(e.erratoPrima) === `Python ${testi.lingue.en}`, scelte(e.erratoPrima));
-  prova("RU-02: riaperto, il primo flowchart torna con la sua scelta, non con quella dell'altro", scelte(e.riaperto) === `Python ${testi.lingue.en}` && scelte(e.errato) === `C ${testi.lingue.it}`, `${scelte(e.riaperto)} / ${scelte(e.errato)}`);
+  prova("le scelte del codice: «Python» → il codice Python, in un passo", scelte(e.python) === `Python ${testi.lingue.it}` && e.python?.codice === codiceDi(atteso(originale, "python", "it")), scelte(e.python));
+  prova("le scelte del codice: «inglese» → il codice Python in inglese, in un passo", scelte(e.inglese) === `Python ${testi.lingue.en}` && e.inglese?.codice === codiceDi(atteso(originale, "python", "en")), scelte(e.inglese));
+  prova("la scelta ricordata: un flowchart mai aperto prende l'ultima scelta", scelte(e.erratoPrima) === `Python ${testi.lingue.en}`, scelte(e.erratoPrima));
+  prova("la scelta ricordata: riaperto, il primo flowchart torna con la sua scelta, non con quella dell'altro", scelte(e.riaperto) === `Python ${testi.lingue.en}` && scelte(e.errato) === `C ${testi.lingue.it}`, `${scelte(e.riaperto)} / ${scelte(e.errato)}`);
 
   const mErr = atteso(originaleErrato, "c", "it");
   const voceAttesa = mErr.segnalazioni.map((s) => `${s.genere === "errore" ? "!" : "?"}\n${s.testo}\n${s.spiegazione}`);
   // `innerText` separa i paragrafi con una riga vuota (il margine del paragrafo): si confronta il testo, non l'impaginazione.
   const vociViste = (e.errato?.voci ?? []).map((v) => v.replace(/\r/g, "").replace(/\n{2,}/g, "\n").trim());
-  prova("S-E3c: la segnalazione sulla pagina è intera, col segno, nella forma di AlgoDesign", vociViste.length === 1 && vociViste.join() === voceAttesa.join(), `${JSON.stringify(vociViste)} / ${JSON.stringify(voceAttesa)}`);
-  prova("S-E3c: al posto del codice il rimando alle segnalazioni", e.errato?.codice === null && "assente" in mErr.codice && e.errato?.assente === mErr.codice.assente, `${e.errato?.assente}`);
+  prova("le segnalazioni: la segnalazione sulla pagina è intera, col segno, nella forma di AlgoDesign", vociViste.length === 1 && vociViste.join() === voceAttesa.join(), `${JSON.stringify(vociViste)} / ${JSON.stringify(voceAttesa)}`);
+  prova("le segnalazioni: al posto del codice il rimando alle segnalazioni", e.errato?.codice === null && "assente" in mErr.codice && e.errato?.assente === mErr.codice.assente, `${e.errato?.assente}`);
   const interniSulloSchermo = (testo: string) => (testo.match(/\b(b\d+|f\d+|invalid_step|E\d{3})\b/g) ?? []);
-  prova("S-E3c: nessun id interno sullo schermo (b1, f1, invalid_step, il numero del codice)", interniSulloSchermo(e.errato?.testoVisibile ?? "b1").length === 0, interniSulloSchermo(e.errato?.testoVisibile ?? "").join(", "));
+  prova("le segnalazioni: nessun id interno sullo schermo (b1, f1, invalid_step, il numero del codice)", interniSulloSchermo(e.errato?.testoVisibile ?? "b1").length === 0, interniSulloSchermo(e.errato?.testoVisibile ?? "").join(", "));
   prova("controllo positivo: un b1 e un invalid_step nel testo visibile si vedono", interniSulloSchermo(`${e.errato?.testoVisibile ?? ""} b1 invalid_step`).join() === "b1,invalid_step");
   const segnalatoAtteso = testi.bloccoSegnalato.replace("{dove}", mErr.segnalazioni[0]?.dove ?? "?");
   const bloccoAtteso = mErr.segnalazioni[0]?.blocco ?? "?";
-  prova("S-E3c: il clic sulla segnalazione porta alla scheda della sua funzione e al disegno, col blocco segnalato evidenziato e in vista, e lo annuncia", e.dopoIlClic?.fuoco === "disegno" && e.dopoIlClic.funzioni.filter((f) => f.attiva).map((f) => f.nome).join() === testi.principale && e.dopoIlClic.disegno.evidenziato === bloccoAtteso && e.dopoIlClic.disegno.evidenziatoInVista && e.dopoIlClic.testoVisibile.includes(segnalatoAtteso) && e.errato?.disegno.evidenziato === null && !(e.errato?.testoVisibile ?? segnalatoAtteso).includes(segnalatoAtteso), JSON.stringify([e.dopoIlClic?.fuoco, e.dopoIlClic?.funzioni, e.dopoIlClic?.disegno.evidenziato, e.dopoIlClic?.disegno.evidenziatoInVista, segnalatoAtteso]));
+  prova("le segnalazioni: il clic sulla segnalazione porta alla scheda della sua funzione e al disegno, col blocco segnalato evidenziato e in vista, e lo annuncia", e.dopoIlClic?.fuoco === "disegno" && e.dopoIlClic.funzioni.filter((f) => f.attiva).map((f) => f.nome).join() === testi.principale && e.dopoIlClic.disegno.evidenziato === bloccoAtteso && e.dopoIlClic.disegno.evidenziatoInVista && e.dopoIlClic.testoVisibile.includes(segnalatoAtteso) && e.errato?.disegno.evidenziato === null && !(e.errato?.testoVisibile ?? segnalatoAtteso).includes(segnalatoAtteso), JSON.stringify([e.dopoIlClic?.fuoco, e.dopoIlClic?.funzioni, e.dopoIlClic?.disegno.evidenziato, e.dopoIlClic?.disegno.evidenziatoInVista, segnalatoAtteso]));
   prova("«Problemi»: la segnalazione intera, come errore; nessuna voce per il file che genera", e.problemiErrato.length === 1 && e.problemiErrato[0]?.messaggio === `${mErr.segnalazioni[0]?.testo} ${mErr.segnalazioni[0]?.spiegazione}` && e.problemiErrato[0]?.gravita === 0 && e.problemiFile === 0, JSON.stringify(e.problemiErrato));
 
   /** Dove due testi cominciano a essere diversi, coi due pezzi da lì. */
@@ -448,28 +521,29 @@ async function nellEditor(eseguibile: string): Promise<void> {
     while (i < a.length && a[i] === b[i]) i++;
     return i === a.length && i === b.length ? "uguali" : `dal carattere ${i}: «${a.slice(Math.max(0, i - 20), i + 40)}» / «${b.slice(Math.max(0, i - 20), i + 40)}»`;
   };
-  prova("S-E3d: sulla pagina nessun elemento modificabile; digitando non cambia nulla, nemmeno il file", e.dopoLaDigitazione?.editabili === 0 && e.dopoLaDigitazione.testoVisibile === e.dopoIlClic?.testoVisibile && e.erratoIntatto && e.sporchiDopoLaDigitazione.length === 0, JSON.stringify({ editabili: e.dopoLaDigitazione?.editabili, sporchi: e.sporchiDopoLaDigitazione, errore: e.digitazioneSullaPagina, testo: divergenza(e.dopoIlClic?.testoVisibile, e.dopoLaDigitazione?.testoVisibile) }));
-  prova("S-E3d: «Apri come testo» apre il JSON del file in una vista di sola lettura, che digitando non cambia", e.comeTesto.tipo === "testo" && e.schemaDelTesto === "algo-testo" && e.idLinguaggioDelTesto === "json" && e.testoAperto === originaleErrato.toString("utf8") && e.vistaInvariata, `${e.comeTesto.tipo} ${e.schemaDelTesto} ${e.idLinguaggioDelTesto} invariata ${e.vistaInvariata}`);
+  prova("la sola lettura: sulla pagina nessun elemento modificabile; digitando non cambia nulla, nemmeno il file", e.dopoLaDigitazione?.editabili === 0 && e.dopoLaDigitazione.testoVisibile === e.dopoIlClic?.testoVisibile && e.erratoIntatto && e.sporchiDopoLaDigitazione.length === 0, JSON.stringify({ editabili: e.dopoLaDigitazione?.editabili, sporchi: e.sporchiDopoLaDigitazione, errore: e.digitazioneSullaPagina, testo: divergenza(e.dopoIlClic?.testoVisibile, e.dopoLaDigitazione?.testoVisibile) }));
+  prova("la sola lettura: «Apri il file come testo» apre il JSON del file in una vista di sola lettura, che digitando non cambia", e.comeTesto.tipo === "testo" && e.schemaDelTesto === "algo-testo" && e.idLinguaggioDelTesto === "json" && e.testoAperto === originaleErrato.toString("utf8") && e.vistaInvariata, `${e.comeTesto.tipo} ${e.schemaDelTesto} ${e.idLinguaggioDelTesto} invariata ${e.vistaInvariata}`);
   prova("controllo positivo: la stessa digitazione su un documento vero lo cambia", e.controlloDigitazione);
 
   const mAlt = atteso(originale.toString("utf8").replace('"name": "lettura-intero"', '"name": "lettura-intera"'), "python", "en");
   console.log(`aggiornamento dal disco: ${e.aggiornamento.ms} ms (riuscito ${e.aggiornamento.riuscita}); senza osservatore: aggiornato ${e.senzaOsservatore.riuscita} in ${e.senzaOsservatore.ms} ms`);
-  prova("S-E3b: dopo il salvataggio di AlgoDesign la pagina è quella nuova entro 1 s, letta dal disco", e.alteratoDiverso && e.aggiornamento.riuscita && e.aggiornamento.ms <= 1000 && e.aggiornamento.f?.codice === codiceDi(mAlt), `${e.aggiornamento.ms} ms, ${e.aggiornamento.f?.titolo}`);
+  prova("l'aggiornamento dal disco: dopo il salvataggio di AlgoDesign la pagina è quella nuova entro 1 s, letta dal disco", e.alteratoDiverso && e.aggiornamento.riuscita && e.aggiornamento.ms <= 1000 && e.aggiornamento.f?.codice === codiceDi(mAlt), `${e.aggiornamento.ms} ms, ${e.aggiornamento.f?.titolo}`);
   prova("controllo positivo: con l'osservatore spento lo stesso salvataggio non arriva alla pagina", !e.senzaOsservatore.riuscita && e.senzaOsservatore.f?.titolo === "lettura-intera", `${e.senzaOsservatore.f?.titolo}`);
   prova("riacceso l'osservatore e rimesso il file, la pagina torna quella di prima", e.rimesso?.titolo === m0.titolo && e.fileIntatto);
   prova("i file non sono rimasti alterati", Buffer.compare(readFileSync(fileAlgo), originale) === 0 && Buffer.compare(readFileSync(fileErrato), originaleErrato) === 0);
   prova("nessun download dell'editor", !existsSync(join(RADICE, ".vscode-test")) && !existsSync(join(cartella, ".vscode-test")), readdirSync(cartella).join(", "));
 
-  // --- S-E11, il disegno nella pagina.
-  const k = e.e11;
+  // --- Il disegno nella pagina.
+  const k = e.disegno;
   const d0 = k.errato?.disegno;
   const integrita = `sha256-${Buffer.from(IMPRONTA_DEL_NUCLEO, "hex").toString("base64")}`;
-  console.log(`E11: nucleo ${d0?.nucleo}, integrità ${d0?.integrita.slice(0, 20)}…; carattere ${JSON.stringify(d0?.carattere)}; disegno ${d0?.larghezza}×${d0?.altezza} scala ${d0?.scala}; bollini ${d0?.bollini.length}`);
-  prova("E11: la pagina esegue il file del nucleo con l'impronta dichiarata in nucleo.json", d0?.nucleo === "caricato" && d0.integrita === integrita, `${d0?.nucleo} ${d0?.integrita} / ${integrita}`);
+  console.log(`disegno: nucleo ${d0?.nucleo}, integrità ${d0?.integrita.slice(0, 20)}…; carattere ${JSON.stringify(d0?.carattere)}; disegno ${d0?.larghezza}×${d0?.altezza} scala ${d0?.scala}; bollini ${d0?.bollini.length}`);
+  prova("il disegno: la pagina esegue il file del nucleo con l'impronta dichiarata in nucleo.json", d0?.nucleo === "caricato" && d0.integrita === integrita, `${d0?.nucleo} ${d0?.integrita} / ${integrita}`);
   const nm = k.nucleoMutato?.disegno;
   prova("controllo positivo: un byte in più nel file del nucleo, la pagina non lo esegue e lo dice; rimesso il file, sì", nm?.nucleo === "assente" && nm.frase === testi.nucleoAssente && nm.svg === null && k.nucleoRimesso?.disegno.nucleo === "caricato" && k.nucleoRimesso.disegno.svg !== null && k.nucleoIntatto, JSON.stringify([nm?.nucleo, nm?.frase, k.nucleoRimesso?.disegno.nucleo, k.nucleoIntatto]));
-  const chiesto = "15px system-ui, sans-serif";
-  prova("E11: la misura col canvas, dopo i caratteri pronti: il carattere riletto è quello chiesto", d0?.carattere?.chiesto === chiesto && d0.carattere.riletto === chiesto && d0.svg !== null && k.carattereRimesso?.disegno.carattere?.riletto === chiesto, JSON.stringify(d0?.carattere));
+  const chiesto = `${DIMENSIONE_DEL_CARATTERE}px system-ui, sans-serif`;
+  const stiliTenuti = (d0?.stili ?? []).filter((s) => s.tenuto).map((s) => s.stile);
+  prova("il disegno: la misura col canvas, dopo i caratteri pronti: il carattere riletto è quello chiesto, nei tre stili del nucleo", d0?.carattere?.chiesto === chiesto && d0.carattere.riletto === chiesto && stiliTenuti.join() === "normale,grassetto,corsivo" && d0.svg !== null && k.carattereRimesso?.disegno.carattere?.riletto === chiesto, JSON.stringify([d0?.carattere, d0?.stili]));
   const ci = k.carattereIgnorato?.disegno;
   prova("controllo positivo: un carattere che il canvas ignora non disegna, e la pagina lo dice", ci?.svg === null && ci.frase === testi.carattereIgnorato.replace("{carattere}", '"non chiuso') && ci.carattere !== null && ci.carattere.riletto !== ci.carattere.chiesto && k.carattereRimesso?.disegno.svg !== null, JSON.stringify([ci?.frase, ci?.carattere]));
 
@@ -486,15 +560,15 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const diverse = k.fisse.filter((x) => x.svg !== svgAtteso(originaleFunzioni, x.funzione, x.lingua)).map((x) => `${x.funzione} ${x.lingua}`);
   if (k.fissaErrato?.disegno.svg !== svgAtteso(originaleErrato, "f1", "it")) diverse.push("per-passo-zero f1 it");
   const schedeViste = [...new Set(k.fisse.map((x) => x.funzione))];
-  console.log(`S-E11: ${k.fisse.length + 1} disegni con la misura fissa (funzioni ${schedeViste.join(", ")}, attese ${funzioniAttese.join(", ")}), diversi ${diverse.length}`);
+  console.log(`disegno: ${k.fisse.length + 1} disegni con la misura fissa (funzioni ${schedeViste.join(", ")}, attese ${funzioniAttese.join(", ")}), diversi ${diverse.length}`);
   // Il confronto sa dire «diverso»: lo stesso disegno nelle due lingue non è uguale.
   const distingue = svgAtteso(originaleFunzioni, "f1", "it") !== svgAtteso(originaleFunzioni, "f1", "en");
-  prova("S-E11: con la misura fissa l'SVG della pagina è byte per byte quello del nucleo, per ogni scheda nelle due lingue", distingue && diverse.length === 0 && funzioniAttese.length >= 2 && schedeViste.join() === funzioniAttese.join() && k.fisse.length === funzioniAttese.length * 2, `distingue ${distingue}; diversi: ${diverse.join("; ")}; schede ${schedeViste.join()}`);
+  prova("il disegno: con la misura fissa l'SVG della pagina è byte per byte quello del nucleo, per ogni scheda nelle due lingue", distingue && diverse.length === 0 && funzioniAttese.length >= 2 && schedeViste.join() === funzioniAttese.join() && k.fisse.length === funzioniAttese.length * 2, `distingue ${distingue}; diversi: ${diverse.join("; ")}; schede ${schedeViste.join()}`);
 
   const vErr = mErr.segnalazioni[0];
   const etichettaAttesa = testi.disegnoDi.replace("{funzione}", testi.principale).replace("{conteggio}", testi.errori1);
-  prova("E11: il bollino appaiato alla segnalazione, col suo testo per la lettura dello schermo; il disegno col suo nome", JSON.stringify(d0?.bollini) === JSON.stringify([{ id: bloccoAtteso, segno: "errore", codici: vErr?.numero ?? "?", etichetta: vErr?.testo ?? "?" }]) && d0?.appaiamento.length === 0 && d0.etichetta === etichettaAttesa, `${JSON.stringify(d0?.bollini)} ${JSON.stringify(d0?.appaiamento)} «${d0?.etichetta}» / «${etichettaAttesa}»`);
-  prova("S-E11: dal bollino alla sua segnalazione, col clic e con Invio", k.dalBollino?.fuoco === "voce-0" && k.dalBollinoConInvio?.fuoco === "voce-0", `${k.dalBollino?.fuoco} ${k.dalBollinoConInvio?.fuoco}`);
+  prova("il disegno: il bollino appaiato alla segnalazione, col suo testo per la lettura dello schermo; il disegno col suo nome", JSON.stringify(d0?.bollini) === JSON.stringify([{ id: bloccoAtteso, segno: "errore", codici: vErr?.numero ?? "?", etichetta: vErr?.testo ?? "?" }]) && d0?.appaiamento.length === 0 && d0.etichetta === etichettaAttesa, `${JSON.stringify(d0?.bollini)} ${JSON.stringify(d0?.appaiamento)} «${d0?.etichetta}» / «${etichettaAttesa}»`);
+  prova("il disegno: dal bollino alla sua segnalazione, col clic e con Invio", k.dalBollino?.fuoco === "voce-0" && k.dalBollinoConInvio?.fuoco === "voce-0", `${k.dalBollino?.fuoco} ${k.dalBollinoConInvio?.fuoco}`);
   const ch = k.chiuso;
   prova("il riquadro si chiude: niente disegno né divisore, le segnalazioni sopra il codice, il comando dice «Mostra il flowchart»", ch?.disegno.chiuso === true && !ch.disegno.divisoreVisibile && ch.voci.length === 1 && ch.testoVisibile.includes(testi.mostra) && !ch.testoVisibile.includes(testi.nascondi) && ch.testoVisibile.indexOf(testi.segnalazioni) < ch.testoVisibile.indexOf(ch.assente ?? "?"), JSON.stringify([ch?.disegno.chiuso, ch?.disegno.divisoreVisibile, ch?.voci.length]));
   prova("il clic su una segnalazione col riquadro chiuso lo riapre, sul blocco evidenziato", k.riapertoDallaVoce?.disegno.chiuso === false && k.riapertoDallaVoce.disegno.evidenziato === bloccoAtteso && k.riapertoDallaVoce.disegno.evidenziatoInVista, JSON.stringify([k.riapertoDallaVoce?.disegno.chiuso, k.riapertoDallaVoce?.disegno.evidenziato]));
@@ -517,6 +591,36 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const fr = k.funzioniRiaperto?.disegno;
   prova("riaperti, ciascuno con la sua vista: lo zoom, il divisore", er?.divisore === 55 && er.adattata && vicino(fr?.scala, 0.8) && fr?.adattata === false && fr.divisore === 60 && k.divisoreFunzioni?.disegno.divisore === 60, JSON.stringify([er?.divisore, er?.adattata, fr?.scala, fr?.adattata, fr?.divisore]));
 
+  // --- Il clic sulla scheda di una funzione porta il codice alla sua definizione (attesa dal modello fuori dall'editor); la riga
+  // è in cima, o in vista col codice scorso fino in fondo (una funzione nelle ultime righe non può salire in cima).
+  const tp = e.tenuta;
+  const mF = atteso(originaleFunzioni, "c", "it");
+  const rigaF2 = "assente" in mF.codice ? undefined : mF.codice.righeDelleFunzioni["f2"];
+  const rigaMainF = "assente" in mF.codice ? undefined : mF.codice.rigaDiMain;
+  const inVista = (f: Fotografia | null | undefined, r: number | undefined) => f !== null && f !== undefined && r !== undefined && (f.rigaInCima === r || (f.codiceInFondo && f.rigaInCima !== null && f.rigaInFondo !== null && f.rigaInCima <= r && r <= f.rigaInFondo));
+  const rigaDelCodice = (r: number | undefined) => ("assente" in mF.codice || r === undefined ? "" : (mF.codice.testo.split("\n")[r - 1] ?? ""));
+  console.log(`clic sulla scheda: «${rigaDelCodice(rigaF2)}» alla riga ${rigaF2}, in cima ${tp.allaFunzione?.rigaInCima} (in fondo ${tp.allaFunzione?.rigaInFondo}, codice in fondo ${tp.allaFunzione?.codiceInFondo}); main alla riga ${rigaMainF}, in cima ${tp.allaPrincipale?.rigaInCima}`);
+  prova("il clic sulla scheda di una funzione porta il codice alla sua definizione; «Programma principale» a main", rigaF2 !== undefined && rigaMainF !== undefined && rigaF2 !== rigaMainF && tp.allaFunzione?.funzioni[1]?.attiva === true && inVista(tp.allaFunzione, rigaF2) && !inVista(tp.allaFunzione, rigaMainF) && tp.allaPrincipale?.funzioni[0]?.attiva === true && tp.allaPrincipale.rigaInCima === rigaMainF, JSON.stringify([rigaF2, tp.allaFunzione?.rigaInCima, tp.allaFunzione?.rigaInFondo, rigaMainF, tp.allaPrincipale?.rigaInCima]));
+  // La pagina che torna in primo piano: rinata (un'altra nascita: senza, la prova non direbbe nulla), con lo zoom, il divisore, la
+  // funzione e la riga in cima di prima.
+  const pr = tp.prima;
+  const tr = tp.tornata;
+  console.log(`pagina tornata: altra scheda ${tp.altraAttiva}, gruppi ${tp.gruppi}; nascita ${pr?.nascita === tr?.nascita ? "la stessa" : "un'altra"}; zoom ${pr?.disegno.scala}→${tr?.disegno.scala}, divisore ${pr?.disegno.divisore}→${tr?.disegno.divisore}, funzione ${pr?.funzioni.find((f) => f.attiva)?.nome}→${tr?.funzioni.find((f) => f.attiva)?.nome}, riga in cima ${pr?.rigaInCima}→${tr?.rigaInCima}`);
+  prova("tornando alla pagina da un'altra scheda dello stesso gruppo: la pagina rinata ha lo zoom, il divisore, la funzione e la riga del codice di prima", tp.altraAttiva === "testo" && tp.gruppi === 1 && pr !== null && tr !== null && pr.nascita !== tr.nascita && pr.disegno.adattata === false && vicino(pr.disegno.scala, 1) && vicino(tr.disegno.scala, pr.disegno.scala) && tr.disegno.adattata === false && pr.disegno.divisore === 65 && tr.disegno.divisore === pr.disegno.divisore && pr.funzioni[1]?.attiva === true && tr.funzioni[1]?.attiva === true && tr.rigaInCima === pr.rigaInCima, JSON.stringify([tp.altraAttiva, tp.gruppi, pr?.nascita, tr?.nascita, pr?.disegno.scala, tr?.disegno.scala, pr?.disegno.divisore, tr?.disegno.divisore, pr?.funzioni, tr?.funzioni, pr?.rigaInCima, tr?.rigaInCima]));
+
+  // --- Il nome con le parentesi dei modelli dei file, e la riga lunga.
+  const pa = e.parentesi;
+  const aC = pa.prima?.aCapo;
+  console.log(`nome con le parentesi: aggiornato ${pa.aggiornamento.riuscita} in ${pa.aggiornamento.ms} ms; a capo: ${aC?.righe} righe, larghezza ${aC?.larghezza} su ${aC?.larghezzaVisibile} visibili, rientro ${JSON.stringify(aC?.rientro)}`);
+  prova("un flowchart col nome «prova [1] {a}.algo»: dopo il salvataggio di AlgoDesign la pagina si aggiorna da sola", pa.prima?.titolo === "riga-lunga" && pa.cambiatoDiverso && pa.aggiornamento.riuscita && pa.aggiornamento.f?.titolo === "riga-lunga-cambiata" && pa.rimesso?.titolo === "riga-lunga" && pa.intatto && Buffer.compare(readFileSync(fileParentesi), originaleParentesi) === 0, `${pa.prima?.titolo} → ${pa.aggiornamento.f?.titolo} (${pa.aggiornamento.ms} ms) → ${pa.rimesso?.titolo}`);
+  prova("il codice va a capo quando la riga non ci sta: nessuno scorrimento orizzontale, e il seguito parte più a destra dell'inizio della riga", rigaPiuLunga > 200 && aC !== undefined && aC.righe >= 1 && aC.larghezza <= aC.larghezzaVisibile && aC.rientro !== null && aC.rientro.seguito > aC.rientro.inizio + 1, JSON.stringify([rigaPiuLunga, aC]));
+
+  // --- L'avviso in «Problemi».
+  const av = e.avviso;
+  const mAv = atteso(originaleAvviso, "c", "it");
+  const vAv = mAv.segnalazioni[0];
+  prova("un flowchart con un avviso e nessun errore: in «Problemi» come avviso (non errore), sulla pagina col suo segno, e il codice c'è", mAv.segnalazioni.length === 1 && vAv?.genere === "avviso" && av.problemi.length === 1 && av.problemi[0]?.gravita === 1 && av.problemi[0]?.messaggio === `${vAv.testo} ${vAv.spiegazione}` && (av.pagina?.voci[0] ?? "").startsWith("?") && av.pagina?.codice !== null && av.pagina?.codice === codiceDi(mAv), JSON.stringify([av.problemi, av.pagina?.voci, av.pagina?.codice === null]));
+
   // --- «Salva il codice come…» (la finestra di Windows sostituita dalle risposte preparate: le domande dicono quando si apre).
   const sv = e.salva;
   const fileC = join(dove, "lettura-intero.c");
@@ -524,11 +628,16 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const codiceC = "assente" in m0.codice ? "?" : m0.codice.testo;
   const stesso = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   const riga = (file: string) => riempi(testi.salvatoAccanto, { file });
-  const pulsantiAttesi = [testi.salvaConAltroNome, testi.sostituisci, testi.annullaSalvataggio];
+  const pulsantiAttesi = [testi.salvaConAltroNome, `⚠ ${testi.sostituisci}`, testi.annullaSalvataggio];
   const domandeDi = (d: Domanda[]) => d.map((x) => `${x.file} | ${JSON.stringify(x.filtri)} | ${x.titolo}`).join("; ");
   prova("«Salva il codice come…» sopra il codice C; col codice assente (il flowchart con errori) il comando non c'è", sv.inC?.salvataggio.comando === testi.salvaCodice && e.errato?.salvataggio.comando === null, `${sv.inC?.salvataggio.comando} / ${e.errato?.salvataggio.comando}`);
   prova("il file non c'è: la finestra nella cartella del flowchart col nome proposto, il tipo e il titolo; il file scritto è il codice della pagina, aperto accanto; la pagina dice dove", sv.domandaNuovo.length === 1 && stesso(sv.domandaNuovo[0]?.file ?? "", fileC) && JSON.stringify(sv.domandaNuovo[0]?.filtri) === JSON.stringify({ [testi.tipiDelCodice["c"] ?? "?"]: ["c"] }) && sv.domandaNuovo[0]?.titolo === testi.titoloDelSalvataggio && sv.scritto === codiceC && sv.inC?.codice === codiceDi(m0) && sv.salvato?.salvataggio.riga === riga("lettura-intero.c") && sv.attivo.file !== null && stesso(sv.attivo.file, fileC) && (sv.attivo.colonna ?? 0) > sv.colonnaDellaPagina, `${sv.salvato?.salvataggio.riga}; attivo ${JSON.stringify(sv.attivo)}, pagina ${sv.colonnaDellaPagina}; scritto ${sv.scritto === codiceC}`);
   prova("il file c'è ed è diverso: l'avviso PRIMA della finestra (nessuna finestra aperta), coi tre pulsanti, il fuoco sulla scelta proposta", sv.modificato !== codiceC && sv.avviso?.salvataggio.avviso === riempi(testi.esisteDiverso, { file: "lettura-intero.c" }) && JSON.stringify(sv.avviso.salvataggio.pulsanti) === JSON.stringify(pulsantiAttesi) && sv.avviso.fuoco === "salva-con-altro-nome" && sv.finestreConLAvviso === 0, `${sv.avviso?.salvataggio.avviso} ${JSON.stringify(sv.avviso?.salvataggio.pulsanti)} fuoco ${sv.avviso?.fuoco}, finestre ${sv.finestreConLAvviso}`);
+  const [aspettoAltro, aspettoSost, aspettoAnnulla] = sv.avviso?.salvataggio.aspetti ?? [];
+  prova("nell'avviso «Sostituisci» si distingue da «Annulla»: il segno ⚠ prima della parola, un altro colore del testo e del bordo", aspettoSost !== undefined && aspettoAnnulla !== undefined && aspettoAltro !== undefined && aspettoSost.testo.startsWith("⚠") && aspettoSost.colore !== aspettoAnnulla.colore && aspettoSost.bordo !== aspettoAnnulla.bordo && aspettoSost.colore !== aspettoAltro.colore, JSON.stringify(sv.avviso?.salvataggio.aspetti));
+  const col = sv.colonna.f;
+  console.log(`a una colonna: ${sv.colonna.passi} passi di zoom, pagina ${col?.disegno.larghezzaPagina} px; la barra a ${col?.colonna.barra} (senza aggancio ${col?.colonna.barraSenzaAggancio}), il riquadro del codice a ${col?.colonna.riquadro}; codice alto ${col?.colonna.altezzaDelCodice} su ${col?.colonna.altezzaDellaFinestra}, pagina scorsa di ${col?.colonna.scorrimento}`);
+  prova("a una colonna, scorrendo fino in fondo (l'avviso fra barra e codice): la barra resta in cima, dove senza aggancio sarebbe uscita; il codice è almeno metà della finestra", col !== null && col.disegno.larghezzaPagina <= 760 && col.colonna.barraSenzaAggancio < -1 && Math.abs(col.colonna.barra) <= 1 && col.colonna.altezzaDelCodice >= col.colonna.altezzaDellaFinestra / 2 - 1 && col.salvataggio.avviso !== null, JSON.stringify([sv.colonna.passi, col?.disegno.larghezzaPagina, col?.colonna, col?.salvataggio.avviso]));
   const dAltro = sv.domandaAltroNome[0];
   prova("«Salva con un altro nome»: la finestra propone il primo nome libero; il nuovo file è il codice, quello modificato resta com'era", sv.domandaAltroNome.length === 1 && dAltro !== undefined && stesso(dAltro.file, fileC2) && JSON.stringify(dAltro.filtri) === JSON.stringify({ [testi.tipiDelCodice["c"] ?? "?"]: ["c"] }) && dAltro.titolo === testi.titoloDelSalvataggio && sv.scritto2 === codiceC && sv.modificatoDopoAltroNome === sv.modificato && sv.altroNome?.salvataggio.riga === riga("lettura-intero-2.c"), domandeDi(sv.domandaAltroNome));
   prova("«Sostituisci»: nessuna finestra, il file è il codice della pagina, l'avviso sparisce", sv.finestreConSostituisci === 0 && sv.scrittoDopoSostituisci === codiceC && sv.sostituito?.salvataggio.avviso === null && sv.sostituito.salvataggio.riga === riga("lettura-intero.c"), `finestre ${sv.finestreConSostituisci}, uguale ${sv.scrittoDopoSostituisci === codiceC}`);
@@ -536,6 +645,13 @@ async function nellEditor(eseguibile: string): Promise<void> {
   prova("«Annulla» nell'avviso: l'avviso sparisce, il file modificato resta, il fuoco torna al comando", sv.modificato2 !== codiceC && sv.annullato?.salvataggio.avviso === null && sv.dopoLAnnulla === sv.modificato2 && sv.annullato.fuoco === "salva-codice", `avviso ${sv.annullato?.salvataggio.avviso}, fuoco ${sv.annullato?.fuoco}`);
   const dPy = sv.domandaPython[0];
   prova("in Python il nome proposto è .py col suo tipo; il codice cambia e la riga del salvataggio sparisce", sv.domandaPython.length === 1 && dPy !== undefined && stesso(dPy.file, join(dove, "lettura-intero.py")) && JSON.stringify(dPy.filtri) === JSON.stringify({ [testi.tipiDelCodice["python"] ?? "?"]: ["py"] }) && sv.python?.salvataggio.riga === null, `${domandeDi(sv.domandaPython)}; riga ${sv.python?.salvataggio.riga}`);
+  // In un'altra cartella il percorso intero, con la lettera del disco come la scrive il sistema.
+  const rigaAltrove = sv.altrove?.salvataggio.riga ?? "";
+  const prefisso = riempi(testi.salvato, { percorso: "" });
+  prova("salvato in un'altra cartella: la pagina dice il percorso intero", sv.scrittoAltrove !== null && rigaAltrove.startsWith(prefisso) && stesso(rigaAltrove.slice(prefisso.length), sv.fileAltrove) && rigaAltrove.slice(prefisso.length, prefisso.length + 1) === sv.fileAltrove.slice(0, 1), `${rigaAltrove} / ${sv.fileAltrove}`);
+  // Un posto che non si scrive: il nome e che cosa fare, nessun motivo tecnico sullo schermo.
+  const rigaErrore = sv.errore?.salvataggio.riga ?? "";
+  prova("il codice che non si salva: la pagina dice quale file e che cosa fare, senza il motivo tecnico", rigaErrore === riempi(testi.nonSalvato, { file: basename(sv.nonScrivibile) }) && !/E[A-Z]{3,}|Error|rror:/.test(rigaErrore), rigaErrore);
 }
 
 if (opzioni.editor !== undefined) await nellEditor(opzioni.editor);
