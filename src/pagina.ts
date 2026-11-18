@@ -1,7 +1,7 @@
 // La pagina del flowchart: un editor personalizzato in sola lettura per i file .algo. L'estensione legge il file dal
 // DISCO, calcola il modello col nucleo, scrive «Problemi» e manda lo stato alla pagina; un osservatore del file la
-// aggiorna dopo un salvataggio esterno. All'avviso dell'osservatore il documento dell'editor ha ancora il testo vecchio (misura di
-// misurato nell'editor): per questo si legge il disco, mai il documento.
+// aggiorna dopo un salvataggio esterno. All'avviso dell'osservatore il documento dell'editor ha ancora il testo vecchio
+// (misurato nell'editor): per questo si legge il disco, mai il documento.
 //
 // La scelta del linguaggio e della lingua si ricorda per flowchart nello stato dell'estensione, legata al percorso
 // rispetto alla cartella aperta, e come «ultima» per i flowchart mai aperti; mai nelle impostazioni.
@@ -10,8 +10,9 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import * as vscode from "vscode";
-import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modello, riempi, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Modello } from "./documento";
-import type { DallaPagina, Fotografia, Misura, Prova, Scelta, Stato, VersoLaPagina, Vista } from "./messaggi";
+import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modelloDelFile, riempi, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Lettura } from "./documento";
+import type { DallaPagina, Fotografia, Prova, Scelta, Stato, VersoLaPagina, Vista } from "./messaggi";
+import { inOrdine } from "./ordine";
 import { altroNome, confronto, estensioneDel, nomeDelCodice } from "./salva";
 import { coloriDelTema } from "./tema";
 import { valida } from "./vista";
@@ -33,7 +34,7 @@ type Aperta = {
   readonly pannello: vscode.WebviewPanel;
   aggiorna(): Promise<void>;
   manda(m: VersoLaPagina): void;
-  readonly attese: Map<number, (f: Fotografia | Misura | null) => void>;
+  readonly attese: Map<number, (f: Fotografia | null) => void>;
 };
 
 export class Pagina implements vscode.CustomReadonlyEditorProvider {
@@ -49,8 +50,11 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
 
   constructor(
     private readonly contesto: vscode.ExtensionContext,
-    private readonly libreria: Libreria,
+    /** Null se il file del nucleo non ha i byte e l'impronta dichiarati: la pagina lo dice, e non lo si esegue. */
+    private readonly libreria: Libreria | null,
     private readonly problemi: vscode.DiagnosticCollection,
+    /** Il registro «AlgoDesign» del pannello «Output»: i motivi tecnici, che sullo schermo non vanno. */
+    private readonly registro: vscode.LogOutputChannel,
   ) {
     contesto.subscriptions.push(
       vscode.window.onDidChangeActiveColorTheme(() => this.aggiornaTutte()),
@@ -128,27 +132,35 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
 
     let pronta = false;
     let ultimo: Stato | null = null;
-    const vista = this.vista(uri);
+    // La vista ricordata, tenuta al passo con quella che la pagina manda: quando la scheda torna in primo piano la pagina rinasce
+    // e riceve l'ultimo stato (ma prima rilegge il suo, salvato nella pagina stessa).
+    let vista = this.vista(uri);
+    const ordine = inOrdine();
     const aperta: Aperta = {
       uri,
       pannello,
       attese: new Map(),
       manda: (m) => void w.postMessage(m),
       aggiorna: async () => {
+        // Numerato all'inizio: un aggiornamento superato da uno cominciato dopo (la lettura del disco è un'attesa) non arriva
+        // alla pagina, che non torna mai a uno stato più vecchio.
+        const numero = ordine.comincia();
         const offerti = linguaggiOfferti(vscode.workspace.getConfiguration("algo").get<boolean>("pseudocodifica", false));
         const scelta = this.scelta(uri, offerti);
         const interfaccia = this.interfaccia();
         const testi = testiDellInterfaccia(interfaccia);
-        let m: Modello;
-        let testo = "";
+        let lettura: Lettura;
         try {
-          testo = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
-          m = modello(this.libreria, testo, scelta.linguaggio, scelta.lingua, interfaccia);
-        } catch {
-          // Un file che non c'è più (cancellato o in mezzo a un salvataggio) non si legge: la pagina lo dice come un file che non si apre.
-          testo = "";
-          m = { titolo: basename(uri.fsPath), funzioni: [], segnalazioni: [], codice: { assente: testi.apri } };
+          lettura = { testo: Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8") };
+        } catch (e) {
+          // Un file che non c'è più (cancellato o in mezzo a un salvataggio) o che il sistema non lascia leggere.
+          lettura = { errore: e instanceof Error ? e.message : String(e) };
         }
+        if (ordine.superato(numero)) return;
+        const { modello: m, eccezione } = modelloDelFile(this.libreria, lettura, scelta.linguaggio, scelta.lingua, interfaccia, basename(uri.fsPath));
+        if (eccezione !== null) this.registro.error(`il nucleo si è fermato leggendo ${uri.fsPath}: ${eccezione}`);
+        if ("errore" in lettura) this.registro.warn(`${uri.fsPath} non si legge dal disco: ${lettura.errore}`);
+        const testo = "testo" in lettura && this.libreria !== null && eccezione === null ? lettura.testo : "";
         this.problemi.set(
           uri,
           m.segnalazioni.map((s) => {
@@ -173,10 +185,12 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     };
     this.aperte.add(aperta);
 
-    // L'osservatore della sola cartella del file, per il suo nome: AlgoDesign salva con un temporaneo rinominato sopra (un «cambiato»).
-    const osservatore = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), basename(uri.fsPath)));
-    const dalDisco = () => {
-      if (!this.osservatoreAcceso) return;
+    // L'osservatore della sola cartella del file, per i suoi file, e il percorso dell'evento confrontato con quello del flowchart:
+    // il nome usato come modello si leggerebbe come un glob (`prova [1] {a}.algo` non vale per sé stesso). AlgoDesign salva con un
+    // temporaneo rinominato sopra (un «cambiato»).
+    const osservatore = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), "*"));
+    const dalDisco = (evento: vscode.Uri) => {
+      if (!this.osservatoreAcceso || !stessoFile(evento, uri)) return;
       void aperta.aggiorna();
       cambioDelTesto.fire(indirizzoDelTesto(uri));
     };
@@ -192,11 +206,15 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
         } else if (m.tipo === "scegli" && ultimo !== null) {
           await this.ricorda(uri, { linguaggio: m.linguaggio ?? ultimo.scelta.linguaggio, lingua: m.lingua ?? ultimo.scelta.lingua });
           await aperta.aggiorna();
-        } else if (m.tipo === "vista") await this.ricordaVista(uri, m.vista);
+        } else if (m.tipo === "vista") {
+          vista = valida(m.vista);
+          if (ultimo !== null) ultimo = { ...ultimo, vista };
+          await this.ricordaVista(uri, m.vista);
+        }
         else if (m.tipo === "apriComeTesto") await apriComeTesto(uri);
         else if ((m.tipo === "salva" || m.tipo === "salvaConAltroNome" || m.tipo === "sostituisci") && ultimo !== null) await this.salva(aperta, ultimo, m.tipo);
-        else if (m.tipo === "fotografia" || m.tipo === "misura") {
-          aperta.attese.get(m.id)?.(m.tipo === "misura" ? m.misura : m.fotografia);
+        else if (m.tipo === "fotografia") {
+          aperta.attese.get(m.id)?.(m.fotografia);
           aperta.attese.delete(m.id);
         }
       }),
@@ -218,8 +236,8 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     const cartella = vscode.Uri.joinPath(a.uri, "..");
     const nome = nomeDelCodice(basename(a.uri.fsPath), s.scelta.linguaggio);
     const proposto = vscode.Uri.joinPath(cartella, nome);
+    let dove: vscode.Uri | undefined = proposto;
     try {
-      let dove: vscode.Uri | undefined = proposto;
       if (come !== "sostituisci") {
         if (come === "salva" && confronto(await testoDi(proposto), codice) === "diverso") {
           a.manda({ tipo: "salvataggio", salvataggio: { stato: "avviso", file: nome } });
@@ -232,10 +250,15 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
       }
       await scrivi(dove, codice);
       await vscode.window.showTextDocument(dove, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      // Accanto al flowchart il solo nome; in un'altra cartella il percorso intero, con la lettera del disco come la scrive il
+      // sistema (l'indirizzo dell'editor la dà minuscola).
       const accanto = vscode.Uri.joinPath(dove, "..").toString() === cartella.toString();
-      a.manda({ tipo: "salvataggio", salvataggio: { stato: "salvato", file: accanto ? basename(dove.fsPath) : vscode.workspace.asRelativePath(dove, false), accanto } });
+      a.manda({ tipo: "salvataggio", salvataggio: { stato: "salvato", file: accanto ? basename(dove.fsPath) : dove.fsPath.replace(/^([a-z]):/, (_, d: string) => `${d.toUpperCase()}:`), accanto } });
     } catch (e) {
-      a.manda({ tipo: "salvataggio", salvataggio: { stato: "errore", testo: riempi(s.testi.nonSalvato, { motivo: e instanceof Error ? e.message : String(e) }) } });
+      // Sullo schermo il file e che cosa fare; il motivo tecnico nel registro.
+      const file = basename((dove ?? proposto).fsPath);
+      this.registro.error(`il codice non si è salvato in ${(dove ?? proposto).fsPath}: ${e instanceof Error ? e.message : String(e)}`);
+      a.manda({ tipo: "salvataggio", salvataggio: { stato: "errore", testo: riempi(s.testi.nonSalvato, { file }) } });
     }
   }
 
@@ -269,12 +292,12 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     return this.chiedi((id) => (selettore === undefined ? { tipo: "fotografia", id } : tasto === undefined ? { tipo: "clic", id, selettore } : { tipo: "tasto", id, selettore, tasto: tasto.tasto, maiuscolo: tasto.maiuscolo === true })).then(({ uri, risposta }) => ({ uri, fotografia: risposta as Fotografia | null }));
   }
 
-  /** Per la prova con l'editor: lo zoom e i nomi della finestra della pagina attiva. */
-  misura(): Promise<{ uri: string; misura: Misura }> {
-    return this.chiedi((id) => ({ tipo: "misura", id })).then(({ uri, risposta }) => ({ uri, misura: risposta as Misura }));
+  /** Per la prova con l'editor: la pagina attiva scorsa fino in fondo, e ciò che mostra dopo. */
+  scorri(): Promise<{ uri: string; fotografia: Fotografia | null }> {
+    return this.chiedi((id) => ({ tipo: "scorri", id })).then(({ uri, risposta }) => ({ uri, fotografia: risposta }));
   }
 
-  private chiedi(domanda: (id: number) => VersoLaPagina): Promise<{ uri: string; risposta: Fotografia | Misura | null }> {
+  private chiedi(domanda: (id: number) => VersoLaPagina): Promise<{ uri: string; risposta: Fotografia | null }> {
     const a = this.attiva();
     if (a === undefined) return Promise.reject(new Error("nessuna pagina aperta"));
     const id = ++this.ultimaFotografia;
@@ -292,7 +315,7 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
   }
 }
 
-// «Apri come testo»: il JSON in una vista di sola lettura col contenuto del file, mai il file nell'editor di testo. Misurato
+// «Apri il file come testo»: il JSON in una vista di sola lettura col contenuto del file, mai il file nell'editor di testo. Misurato
 // nell'editor vero: un file aperto una volta con l'editor di testo si riapre da lì in poi come testo, non come pagina.
 export const SCHEMA_DEL_TESTO = "algo-testo";
 const cambioDelTesto = new vscode.EventEmitter<vscode.Uri>();
@@ -313,6 +336,11 @@ export const fornitoreDelTesto: vscode.TextDocumentContentProvider = {
     }
   },
 };
+
+/** Lo stesso file: il percorso intero, senza distinguere le maiuscole dove il sistema non le distingue. */
+function stessoFile(a: vscode.Uri, b: vscode.Uri): boolean {
+  return process.platform === "win32" || process.platform === "darwin" ? a.fsPath.toLowerCase() === b.fsPath.toLowerCase() : a.fsPath === b.fsPath;
+}
 
 /** Il documento aperto nell'editor per quel file, se c'è. */
 function documentoDi(uri: vscode.Uri): vscode.TextDocument | undefined {

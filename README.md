@@ -2,17 +2,17 @@
 
 Un'estensione per VSCodium e Visual Studio Code che apre i flowchart di [AlgoDesign](https://github.com/gilan65/AlgoDesign) (i file `.algo`) in una pagina in sola lettura, col disegno, il codice generato e gli errori del flowchart.
 
-> **Versione di prova (0.0.8).** La pagina del flowchart col disegno e «Salva il codice come…». Il pacchetto è costruito dalle GitHub Actions.
+> **Versione di prova (0.0.9).** La pagina del flowchart col disegno e «Salva il codice come…». Il pacchetto è costruito dalle GitHub Actions.
 
 ## Che cosa fa
 
 Aprendo un file `.algo` (un clic nell'elenco dei file) si apre la **pagina del flowchart**:
 
-- a sinistra il **disegno** del flowchart, lo stesso che esporta AlgoDesign, con una **scheda per ogni funzione** e, sopra, lo **zoom** coi comandi di AlgoDesign (Riduci, la percentuale che torna al 100%, Ingrandisci, «Adatta alla finestra»); la prima volta il disegno è adattato alla finestra. Sotto, **«Errori e avvisi»**: gli errori e gli avvisi del flowchart con le frasi di AlgoDesign (che cosa non va, che cosa è successo, come correggere). Ogni blocco segnalato ha il suo **bollino** nel disegno: un clic sul bollino porta alla sua segnalazione, un clic sulla segnalazione porta al blocco e lo evidenzia. Gli stessi errori stanno anche nel pannello «Problemi»;
-- a destra il **codice** generato da AlgoDesign, aperto sul programma principale e colorato coi colori del tema dell'editor; sopra, i pulsanti **Linguaggio** (Python, C) e **Lingua** (italiano, inglese), che cambiano i nomi e i commenti del codice e le parole del disegno. La prima volta il codice è in C e in italiano; poi ogni flowchart si riapre con l'ultima scelta fatta per lui. Quando il flowchart ha un errore, il codice non c'è e la pagina dice perché;
+- a sinistra il **disegno** del flowchart, lo stesso che esporta AlgoDesign, con una **scheda per ogni funzione** (un clic sulla scheda porta anche il codice a quella funzione) e, sopra, lo **zoom** coi comandi di AlgoDesign (Riduci, la percentuale che torna al 100%, Ingrandisci, «Adatta alla finestra»); la prima volta il disegno è adattato alla finestra. Sotto, **«Errori e avvisi»**: gli errori e gli avvisi del flowchart con le frasi di AlgoDesign (che cosa non va, che cosa è successo, come correggere). Ogni blocco segnalato ha il suo **bollino** nel disegno: un clic sul bollino porta alla sua segnalazione, un clic sulla segnalazione porta al blocco e lo evidenzia. Gli stessi errori stanno anche nel pannello «Problemi»;
+- a destra, sotto il titolo **«Codice generato dal flowchart»**, il **codice** generato da AlgoDesign, aperto sul programma principale e colorato coi colori del tema dell'editor; una riga che non ci sta va a capo, col rientro della riga che continua. Sopra, i pulsanti **Linguaggio** (Python, C) e **Lingua** (italiano, inglese), che cambiano i nomi e i commenti del codice e le parole del disegno. La prima volta il codice è in C e in italiano; poi ogni flowchart si riapre con l'ultima scelta fatta per lui. Quando il flowchart ha un errore, il codice non c'è e la pagina dice perché;
 - fra disegno e codice un **divisore** che si trascina (o, col fuoco, si sposta con le frecce); **«Nascondi il flowchart»** lascia tutta la larghezza al codice, **«Mostra il flowchart»** lo rimette. Lo zoom, il divisore e il riquadro si ricordano per ogni flowchart;
 - **«Salva il codice come…»**, sopra il codice, apre la finestra «Salva con nome» del sistema nella cartella del flowchart, col nome del flowchart e l'estensione del linguaggio (`lettura-intero.c`, `.py`); il file salvato si apre accanto alla pagina ed è un file normale, da modificare e compilare. Se un file con quel nome c'è già ed è diverso dal codice (lo si era salvato e poi modificato), la pagina lo dice **prima** di aprire la finestra: sostituendolo si perdono le modifiche, e propone **«Salva con un altro nome»** (oppure «Sostituisci», o «Annulla»);
-- **«Apri come testo»** mostra il file così com'è (JSON), anche questo in sola lettura.
+- **«Apri il file come testo»** mostra il file così com'è (JSON), anche questo in sola lettura.
 
 La pagina si usa anche da tastiera: il tabulatore passa dalle schede allo zoom, al disegno coi suoi bollini, alle segnalazioni, al divisore e al codice; la lettura dello schermo dice il nome del disegno col numero degli errori, e di ogni bollino la sua segnalazione.
 
@@ -22,10 +22,10 @@ L'impostazione **`algo.pseudocodifica`** (spenta di partenza) aggiunge ai lingua
 
 ## Installarla
 
-Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica `AlgoDesign-Code-0.0.8.vsix`, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
+Dalla [pagina delle release](https://github.com/gspe65/AlgoDesign-VSCode/releases) si scarica il file `AlgoDesign-Code-<versione>.vsix` dell'ultima release, poi nell'editor: «Estensioni», menu «···», «Installa da VSIX…». Da riga di comando:
 
 ```
-codium --install-extension AlgoDesign-Code-0.0.8.vsix
+codium --install-extension AlgoDesign-Code-<versione>.vsix
 ```
 
 (`code` al posto di `codium` per Visual Studio Code.)
@@ -35,7 +35,7 @@ codium --install-extension AlgoDesign-Code-0.0.8.vsix
 Il pacchetto lo costruisce la corsa delle GitHub Actions di questo repository, a ogni etichetta, **una volta sola**. Lo stesso file viene provato con VSCodium 1.143.17232 su Windows, Ubuntu (con uno schermo virtuale) e macOS. La release si crea solo se le tre prove sono verdi, e il file porta un'attestazione della sua provenienza, che si verifica con:
 
 ```
-gh attestation verify AlgoDesign-Code-0.0.8.vsix -R gspe65/AlgoDesign-VSCode
+gh attestation verify AlgoDesign-Code-<versione>.vsix -R gspe65/AlgoDesign-VSCode
 ```
 
 Il codice, gli errori e il disegno li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: in questa versione è costruito dai sorgenti di AlgoDesign all'etichetta `algodesign-core-contract-1.1`, con le opzioni del pacchetto di AlgoDesign, e confrontato con i byte e l'impronta sha256 scritti in `nucleo.json`. Quando AlgoDesign pubblicherà la release che lo contiene, si userà il file di quella release. La pagina esegue lo stesso file che usa l'estensione, e il browser dell'editor lo esegue solo se ha l'impronta di `nucleo.json`.

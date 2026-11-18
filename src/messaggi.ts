@@ -30,7 +30,8 @@ export type Stato = {
   readonly colori: Colori;
   /** Il testo del file com'è sul disco: la pagina lo apre col nucleo per disegnarlo. */
   readonly testo: string;
-  /** La vista ricordata: la pagina la prende solo al primo stato, poi tiene la sua. */
+  /** La vista ricordata: la pagina la prende solo al primo stato, poi tiene la sua (anche quando rinasce: la rilegge dallo
+   *  stato che la pagina salva in sé). */
   readonly vista: Vista;
   /** Un numero che cresce a ogni stato nuovo: la pagina riporta il codice su `main` solo se cambia il codice. */
   readonly versione: number;
@@ -61,8 +62,10 @@ export type FotografiaDelDisegno = {
   readonly adattata: boolean;
   /** Se il disegno sta tutto nell'area visibile del foglio (adattato deve starci). */
   readonly staNelFoglio: boolean;
-  /** Il carattere chiesto al canvas e quello che il canvas ha tenuto (riletto). */
+  /** Il carattere chiesto al canvas e quello che il canvas ha tenuto (riletto), nello stile normale. */
   readonly carattere: { readonly chiesto: string; readonly riletto: string } | null;
+  /** I tre stili che il nucleo misura (normale, grassetto, corsivo), ciascuno chiesto e riletto, e se il canvas l'ha tenuto. */
+  readonly stili: readonly { readonly stile: string; readonly chiesto: string; readonly riletto: string; readonly tenuto: boolean }[];
   /** I bollini del disegno nell'ordine del tabulatore, col nome che la lettura dello schermo ne dice. */
   readonly bollini: readonly { readonly id: string; readonly segno: string; readonly codici: string; readonly etichetta: string }[];
   /** Le coppie bollino-segnalazione della scheda che non tornano, nei due versi (vuoto: si appaiano). */
@@ -92,24 +95,35 @@ export type Fotografia = {
   readonly funzioni: readonly { readonly nome: string; readonly attiva: boolean }[];
   readonly voci: readonly string[];
   readonly rigaInCima: number | null;
+  /** L'ultima riga del codice che si vede, e se il codice è scorso fino in fondo (allora la riga cercata può non stare in cima). */
+  readonly rigaInFondo: number | null;
+  readonly codiceInFondo: boolean;
+  /** Un valore diverso a ogni nascita della pagina: la pagina rinata (tornata in primo piano) si riconosce da qui. */
+  readonly nascita: string;
+  /** Il titolo sopra il codice. */
+  readonly titoloDelCodice: string | null;
+  /** «Apri il file come testo»: il testo del pulsante e il suo suggerimento. */
+  readonly pulsanteDelTesto: { readonly testo: string; readonly suggerimento: string } | null;
+  /** Il codice che va a capo: le righe che occupano più di una riga sullo schermo, se c'è uno scorrimento orizzontale, e per la
+   *  prima riga a capo dove comincia il suo testo (il primo carattere non bianco) e dove comincia il seguito, in pixel. */
+  readonly aCapo: { readonly righe: number; readonly larghezza: number; readonly larghezzaVisibile: number; readonly rientro: { readonly inizio: number; readonly seguito: number } | null };
+  /** La barra sopra il codice (linguaggio, lingua, salvataggio) e il riquadro del codice, in pixel dalla cima della finestra. */
+  readonly colonna: { readonly barra: number; readonly barraSenzaAggancio: number; readonly riquadro: number; readonly altezzaDelCodice: number; readonly altezzaDellaFinestra: number; readonly scorrimento: number };
   readonly editabili: number;
   /** L'elemento col fuoco: il suo id, o il valore della sua scelta, o il nome del tag. */
   readonly fuoco: string;
   readonly colori: Readonly<Record<string, string | null>>;
   readonly disegno: FotografiaDelDisegno;
   /** «Salva il codice come…»: se il comando c'è, l'avviso (il suo testo e i suoi pulsanti) e la riga del file salvato. */
-  readonly salvataggio: { readonly comando: string | null; readonly avviso: string | null; readonly pulsanti: readonly string[]; readonly riga: string | null };
+  readonly salvataggio: {
+    readonly comando: string | null;
+    readonly avviso: string | null;
+    readonly pulsanti: readonly string[];
+    /** I pulsanti dell'avviso come si vedono: il colore del testo e del bordo. */
+    readonly aspetti: readonly { readonly testo: string; readonly colore: string; readonly bordo: string }[];
+    readonly riga: string | null;
+  };
   readonly versione: number;
-};
-
-/** Le grandezze della finestra della pagina: lo zoom dell'editor e i nomi che la finestra ha già. Solo per la prova. */
-export type Misura = {
-  readonly rapportoDeiPixel: number;
-  readonly larghezza: number;
-  readonly altezza: number;
-  readonly caratterePx: number;
-  /** I nomi della finestra, sue e della catena dei prototipi, letti prima che la pagina carichi altro. */
-  readonly nomiDellaFinestra: readonly string[];
 };
 
 /** Solo per la prova: la misura fissa (quella della conformità, al posto del canvas) e un carattere diverso da chiedere. */
@@ -120,7 +134,7 @@ export type VersoLaPagina =
   | { readonly tipo: "fotografia"; readonly id: number }
   | { readonly tipo: "clic"; readonly id: number; readonly selettore: string }
   | { readonly tipo: "tasto"; readonly id: number; readonly selettore: string; readonly tasto: string; readonly maiuscolo: boolean }
-  | { readonly tipo: "misura"; readonly id: number }
+  | { readonly tipo: "scorri"; readonly id: number }
   | { readonly tipo: "prova"; readonly prova: Prova }
   | { readonly tipo: "salvataggio"; readonly salvataggio: Salvataggio };
 
@@ -131,5 +145,4 @@ export type DallaPagina =
   | { readonly tipo: "apriComeTesto" }
   /** «Salva il codice come…»; poi, dall'avviso, «Salva con un altro nome» o «Sostituisci». */
   | { readonly tipo: "salva" | "salvaConAltroNome" | "sostituisci" }
-  | { readonly tipo: "fotografia"; readonly id: number; readonly fotografia: Fotografia | null; readonly errore?: string }
-  | { readonly tipo: "misura"; readonly id: number; readonly misura: Misura };
+  | { readonly tipo: "fotografia"; readonly id: number; readonly fotografia: Fotografia | null; readonly errore?: string };

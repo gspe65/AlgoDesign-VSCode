@@ -4,25 +4,31 @@
 // createElement e textContent; l'SVG del nucleo si legge con DOMParser; i colori del codice e le misure sono proprietà CSS messe
 // da qui, che la politica dei contenuti della pagina permette.
 //
-// Il testo si misura col canvas, dopo `document.fonts.ready`, nel carattere del disegno; il carattere che il canvas tiene si
-// rilegge, e se non è quello chiesto (un nome che il canvas ignora in silenzio) il disegno non si fa e la pagina lo dice.
+// Il testo si misura col canvas, dopo `document.fonts.ready`, nel carattere del disegno e nei tre stili che il nucleo usa; il
+// carattere che il canvas tiene si rilegge, e se non è quello chiesto (un nome che il canvas ignora in silenzio) il disegno non si
+// fa e la pagina lo dice.
+//
+// La pagina rinasce quando la sua scheda torna in primo piano (l'editor la toglie quando è nascosta): lo zoom, il divisore, il
+// riquadro, la funzione aperta e la riga del codice in cima si salvano nello stato della pagina a ogni cambio (`setState`), e
+// alla nascita si rileggono (`getState`).
 
 import type { EsitoDelControllo, LinguaDelCodice, MisuraDelTesto, Progetto } from "algodesign-core";
 import { appaiamento, blocchiSegnalati, type Bollino } from "../bollini";
 import { pezzi, SPECIE } from "../colori";
 import type { DallaPagina, Fotografia, FotografiaDelDisegno, Prova, Salvataggio, Stato, VersoLaPagina, Vista } from "../messaggi";
-import { limitaIlDivisore, limitaLaScala, PASSO, PASSO_DEL_DIVISORE, scalaAdatta, valida } from "../vista";
+import { limitaIlDivisore, limitaLaScala, PASSO, PASSO_DEL_DIVISORE, scalaAdatta, STILI, stileTenuto, valida } from "../vista";
 
-/** I nomi della finestra prima di ogni altra cosa della pagina (per la prova: quelli del pacchetto del nucleo non devono esserci). */
-const NOMI_DELLA_FINESTRA = (() => {
-  const nomi = new Set<string>();
-  for (let o: object | null = window; o !== null; o = Object.getPrototypeOf(o)) for (const n of Object.getOwnPropertyNames(o)) nomi.add(n);
-  return [...nomi];
-})();
-
-declare function acquireVsCodeApi(): { postMessage(m: DallaPagina): void };
+/** Ciò che la pagina ricorda di sé quando rinasce. `codice` riconosce il codice per cui vale la riga in cima. */
+type Ricordo = { readonly vista: Vista | null; readonly scheda: string | null; readonly riga: { readonly codice: string; readonly riga: number } | null };
+declare function acquireVsCodeApi(): { postMessage(m: DallaPagina): void; getState(): unknown; setState(s: Ricordo): void };
 const editor = acquireVsCodeApi();
 const manda = (m: DallaPagina) => editor.postMessage(m);
+const ricordo = ((): Ricordo => {
+  const r = editor.getState() as Partial<Ricordo> | undefined;
+  return { vista: r?.vista ?? null, scheda: typeof r?.scheda === "string" ? r.scheda : null, riga: r?.riga ?? null };
+})();
+/** Un valore per questa nascita della pagina (per la prova: la pagina tornata in primo piano è rinata davvero). */
+const NASCITA = `${Date.now()}-${Math.random()}`;
 
 type Nucleo = {
   apri(testo: string): { ok: true; progetto: Progetto } | { ok: false };
@@ -33,14 +39,17 @@ const esportato = (window as unknown as { module?: { exports?: Partial<Nucleo> }
 const nucleo: Nucleo | null = typeof esportato?.disegna === "function" && typeof esportato.apri === "function" && typeof esportato.controlla === "function" ? (esportato as Nucleo) : null;
 const INTEGRITA = document.getElementById("nucleo")?.getAttribute("integrity") ?? "";
 
-/** Il carattere del disegno, come in AlgoDesign; la misura fissa è quella della conformità (7 pixel a carattere). */
+/** Il carattere del disegno, come in AlgoDesign (la dimensione è `DIMENSIONE_DEL_CARATTERE`); la misura fissa è quella della
+ *  conformità (7 pixel a carattere). */
 const CARATTERE = "system-ui, sans-serif";
 const misuraFissa: MisuraDelTesto = (t, stile) => t.length * 7 + (stile === "grassetto" ? t.length : stile === "corsivo" ? t.length / 2 : 0);
 
 const radice = document.getElementById("radice")!;
 let stato: Stato | null = null;
-let schedaAttiva: string | null = null;
-let vista: Vista | null = null;
+let schedaAttiva: string | null = ricordo.scheda;
+let vista: Vista | null = ricordo.vista === null ? null : valida(ricordo.vista);
+/** La riga del codice in cima, ricordata per il codice mostrato (la chiave ridotta a un'impronta corta). */
+let rigaRicordata: { codice: string; riga: number } | null = ricordo.riga;
 let prova: Prova = { misuraFissa: false, carattere: null };
 /** Il blocco mostrato dal clic su una segnalazione (resta evidenziato fino al clic successivo). */
 let evidenziato: { blocco: string | null; funzione: string; dove: string } | null = null;
@@ -52,8 +61,9 @@ let aperto: { testo: string | null; progetto: Progetto | null; controllo: EsitoD
 /** L'ultimo disegno fatto: per adattarlo all'area e per la fotografia. */
 let disegnato: { svg: string; larghezza: number; altezza: number; carattere: { chiesto: string; riletto: string } | null } | null = null;
 let frase: string | null = null;
-/** Il carattere chiesto al canvas all'ultimo disegno e quello che il canvas ha tenuto (null con la misura fissa). */
+/** Il carattere chiesto al canvas all'ultimo disegno e quello che il canvas ha tenuto (null con la misura fissa), e i tre stili. */
 let ultimaLettura: { chiesto: string; riletto: string } | null = null;
+let ultimiStili: FotografiaDelDisegno["stili"] = [];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, attributi: Record<string, string> = {}, ...figli: (Node | string)[]): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -66,6 +76,19 @@ const riempi = (t: string, v: Record<string, string>) => t.replace(/\{(\w+)\}/g,
 function ricordaVista(nuova: Vista): void {
   vista = valida(nuova);
   manda({ tipo: "vista", vista });
+  salvaIlRicordo();
+}
+
+/** Lo stato della pagina salvato in sé: lo rilegge quando rinasce. */
+function salvaIlRicordo(): void {
+  editor.setState({ vista, scheda: schedaAttiva, riga: rigaRicordata });
+}
+
+/** Un'impronta corta di un testo (per riconoscere il codice senza salvarlo intero). */
+function improntaCorta(t: string): string {
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+  return `${t.length}:${h.toString(36)}`;
 }
 
 /** Un gruppo di pulsanti a scelta unica, con le frecce per muoversi (un solo pulsante raggiungibile col tabulatore). */
@@ -90,12 +113,15 @@ function gruppo(etichetta: string, voci: readonly { id: string; nome: string }[]
   return g;
 }
 
-/** Il codice, una riga per elemento, coi numeri di riga fuori dal testo e le parti colorate. */
+/** Il codice, una riga per elemento, coi numeri di riga fuori dal testo e le parti colorate. Una riga che non ci sta va a capo,
+ *  e il seguito parte più a destra del suo rientro (`--rientro`, in caratteri, letto dagli spazi in testa alla riga). */
 function codice(testo: string, linguaggio: string, etichetta: string): HTMLElement {
   const pre = el("pre", { id: "codice", tabindex: "0", "aria-label": etichetta });
   const righe: HTMLElement[] = [];
   let riga = el("span", { class: "t" });
   const chiudi = () => {
+    const rientro = (/^[ \t]*/.exec(riga.textContent ?? "")?.[0] ?? "").replace(/\t/g, "    ").length;
+    riga.style.setProperty("--rientro", String(rientro));
     righe.push(el("div", { class: "riga" }, el("span", { class: "n", "aria-hidden": "true" }, String(righe.length + 1)), riga));
     riga = el("span", { class: "t" });
   };
@@ -113,21 +139,22 @@ function codice(testo: string, linguaggio: string, etichetta: string): HTMLEleme
 
 // --- Il disegno.
 
-/** La misura del testo nel carattere dato, col canvas; null se il canvas non tiene il carattere (lo riletto è diverso). */
-function misuraDelCanvas(carattere: string): { misura: MisuraDelTesto; riletto: string } | null {
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (ctx === null) return null;
-  const chiesto = `15px ${carattere}`;
-  ctx.font = chiesto;
-  const riletto = ctx.font;
-  if (riletto !== chiesto) return { misura: () => 0, riletto };
-  return {
-    riletto,
-    misura: (t, stile) => {
-      ctx.font = `${stile === "grassetto" ? "bold " : stile === "corsivo" ? "italic " : ""}${chiesto}`;
-      return ctx.measureText(t).width;
-    },
-  };
+/** La misura del testo nel carattere dato, col canvas, un contesto per ciascuno dei tre stili che il nucleo misura (come
+ *  AlgoDesign); ogni stile chiesto si rilegge. `misura` c'è solo se il canvas li ha tenuti tutti e tre. */
+function misuraDelCanvas(carattere: string): { misura: MisuraDelTesto | null; stili: FotografiaDelDisegno["stili"] } {
+  const contesti = new Map<string, CanvasRenderingContext2D>();
+  const stili = STILI.map((s) => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    const { chiesto } = stileTenuto(s, carattere, "");
+    if (ctx === null) return { stile: s.stile, chiesto, riletto: "", tenuto: false };
+    ctx.font = chiesto;
+    const riletto = ctx.font;
+    const { tenuto } = stileTenuto(s, carattere, riletto);
+    contesti.set(s.stile, ctx);
+    return { stile: s.stile, chiesto, riletto, tenuto };
+  });
+  if (!stili.every((s) => s.tenuto)) return { misura: null, stili };
+  return { stili, misura: (t, stile) => contesti.get(stile ?? "normale")!.measureText(t).width };
 }
 
 /** Disegna la funzione nella lingua scelta; il risultato in `disegnato`, o la frase che dice perché non c'è in `frase`. */
@@ -138,32 +165,48 @@ function faiIlDisegno(s: Stato, funzione: string | null): void {
     frase = s.testi.nucleoAssente;
     return;
   }
-  if (aperto.testo !== s.testo) {
-    const a = nucleo.apri(s.testo);
-    aperto = a.ok ? { testo: s.testo, progetto: a.progetto, controllo: nucleo.controlla(a.progetto) } : { testo: s.testo, progetto: null, controllo: null };
+  // Senza un progetto (il file non si legge, non è un flowchart, il nucleo dell'estensione manca o si è fermato) il disegno dice
+  // lo stesso motivo del codice.
+  const senzaProgetto = s.modello.funzioni.length === 0 && "assente" in s.modello.codice ? s.modello.codice.assente : s.testi.apri;
+  try {
+    if (aperto.testo !== s.testo) {
+      const a = nucleo.apri(s.testo);
+      aperto = a.ok ? { testo: s.testo, progetto: a.progetto, controllo: nucleo.controlla(a.progetto) } : { testo: s.testo, progetto: null, controllo: null };
+    }
+  } catch {
+    aperto = { testo: s.testo, progetto: null, controllo: null };
+    frase = s.testi.nucleoFermo;
+    return;
   }
   if (aperto.progetto === null || aperto.controllo === null || funzione === null) {
-    frase = s.testi.apri;
+    frase = senzaProgetto;
     return;
   }
   const carattere = prova.carattere ?? CARATTERE;
   let misura: MisuraDelTesto;
   let lettura: { chiesto: string; riletto: string } | null = null;
-  if (prova.misuraFissa) misura = misuraFissa;
-  else {
+  if (prova.misuraFissa) {
+    misura = misuraFissa;
+    ultimiStili = [];
+  } else {
     const m = misuraDelCanvas(carattere);
-    lettura = { chiesto: `15px ${carattere}`, riletto: m?.riletto ?? "" };
-    if (m === null || m.riletto !== lettura.chiesto) {
+    const normale = m.stili[0]!;
+    lettura = { chiesto: normale.chiesto, riletto: normale.riletto };
+    ultimiStili = m.stili;
+    if (m.misura === null) {
       frase = riempi(s.testi.carattereIgnorato, { carattere });
-      disegnato = null;
       ultimaLettura = lettura;
       return;
     }
     misura = m.misura;
   }
   ultimaLettura = lettura;
-  const d = nucleo.disegna(aperto.progetto, funzione, s.scelta.lingua, misura, carattere, { errori: aperto.controllo });
-  disegnato = { ...d, carattere: lettura };
+  try {
+    const d = nucleo.disegna(aperto.progetto, funzione, s.scelta.lingua, misura, carattere, { errori: aperto.controllo });
+    disegnato = { ...d, carattere: lettura };
+  } catch {
+    frase = s.testi.nucleoFermo;
+  }
 }
 
 function conteggio(s: Stato, funzione: string | null): string {
@@ -330,7 +373,7 @@ function divisore(s: Stato, corpo: HTMLElement): HTMLElement {
 function comandoDelSalvataggio(t: Stato["testi"]): HTMLElement {
   const b = el("button", { type: "button", id: "salva-codice" }, t.salvaCodice);
   b.addEventListener("click", () => manda({ tipo: "salva" }));
-  const riga = salvataggio?.stato === "salvato" ? el("span", { id: "salvato", class: "salvato" }, riempi(salvataggio.accanto ? t.salvatoAccanto : t.salvato, { file: salvataggio.file })) : salvataggio?.stato === "errore" ? el("span", { id: "salvato", class: "salvato errore" }, salvataggio.testo) : null;
+  const riga = salvataggio?.stato === "salvato" ? el("span", { id: "salvato", class: "salvato" }, salvataggio.accanto ? riempi(t.salvatoAccanto, { file: salvataggio.file }) : riempi(t.salvato, { percorso: salvataggio.file })) : salvataggio?.stato === "errore" ? el("span", { id: "salvato", class: "salvato errore" }, salvataggio.testo) : null;
   return el("div", { class: "salvataggio" }, b, ...(riga === null ? [] : [riga]));
 }
 
@@ -339,7 +382,8 @@ function avvisoDelSalvataggio(t: Stato["testi"]): HTMLElement | null {
   if (salvataggio?.stato !== "avviso") return null;
   const altro = el("button", { type: "button", id: "salva-con-altro-nome", class: "primario" }, t.salvaConAltroNome);
   altro.addEventListener("click", () => manda({ tipo: "salvaConAltroNome" }));
-  const sostituisci = el("button", { type: "button", id: "sostituisci" }, t.sostituisci);
+  // «Sostituisci» fa perdere le modifiche: il segno d'avviso prima della parola e il colore d'avviso del tema, diverso da «Annulla».
+  const sostituisci = el("button", { type: "button", id: "sostituisci", class: "perde" }, el("span", { class: "segno-avviso", "aria-hidden": "true" }, "⚠"), ` ${t.sostituisci}`);
   sostituisci.addEventListener("click", () => manda({ tipo: "sostituisci" }));
   const annulla = el("button", { type: "button", id: "annulla-salvataggio" }, t.annullaSalvataggio);
   annulla.addEventListener("click", chiudiLAvviso);
@@ -376,9 +420,10 @@ function disegna(s: Stato): void {
     if (stato !== null) disegna(stato);
     document.getElementById("riquadro")?.focus();
   });
-  const apriTesto = el("button", { type: "button", id: "apri-come-testo" }, testi.apriComeTesto);
+  testata.append(riquadro);
+  // «Apri il file come testo» sta coi comandi del codice, dopo «Salva il codice come…»; c'è anche quando il codice non c'è.
+  const apriTesto = el("button", { type: "button", id: "apri-come-testo", title: testi.apriComeTestoSuggerimento }, testi.apriComeTesto);
   apriTesto.addEventListener("click", () => manda({ tipo: "apriComeTesto" }));
-  testata.append(riquadro, apriTesto);
 
   // Le segnalazioni: sotto il disegno, o sopra il codice col riquadro chiuso (solo se ce ne sono).
   const elenco = el("ul", { class: "voci" });
@@ -405,9 +450,14 @@ function disegna(s: Stato): void {
   const schede = el("div", { role: "tablist", "aria-label": testi.funzioni, class: "schede" });
   for (const f of m.funzioni) {
     const t = el("button", { type: "button", role: "tab", "aria-selected": String(f.id === schedaAttiva), "data-funzione": f.id, "aria-controls": "disegno" }, f.nome);
+    // Il clic sulla scheda porta anche il codice alla definizione della funzione (il programma principale: a `main`).
     t.addEventListener("click", () => {
       schedaAttiva = f.id;
-      if (stato !== null) disegna(stato);
+      if (stato === null) return;
+      disegna(stato);
+      const c = stato.modello.codice;
+      const riga = "assente" in c ? undefined : (c.righeDelleFunzioni[f.id] ?? (f.nome === testi.principale ? c.rigaDiMain : undefined));
+      if (riga !== undefined) portaSullaRiga(riga);
     });
     schede.append(t);
   }
@@ -426,11 +476,12 @@ function disegna(s: Stato): void {
     gruppo(testi.linguaggio, s.offerti, s.scelta.linguaggio, (id) => manda({ tipo: "scegli", linguaggio: id })),
     gruppo(testi.lingua, s.lingue, s.scelta.lingua, (id) => manda({ tipo: "scegli", lingua: id as "it" | "en" })),
     // Il codice assente (il flowchart ha errori) non si salva: il comando non c'è.
-    ...("assente" in m.codice ? [] : [comandoDelSalvataggio(testi)]),
+    el("div", { class: "comandi-del-codice" }, ...("assente" in m.codice ? [] : [comandoDelSalvataggio(testi)]), apriTesto),
   );
   const avviso = avvisoDelSalvataggio(testi);
   const contenuto = "assente" in m.codice ? el("p", { id: "assente", class: "assente" }, m.codice.assente) : codice(m.codice.testo, s.scelta.linguaggio, testi.codiceIn.replace("{linguaggio}", nomeDelLinguaggio));
-  const destra = el("section", { class: "destra" }, scelte, ...(avviso === null ? [] : [avviso]), ...(chiuso && m.segnalazioni.length > 0 ? [segnalazioni] : []), contenuto);
+  const titoloDelCodice = el("h2", { id: "titolo-del-codice", class: "titolo-del-codice" }, testi.titoloDelCodice);
+  const destra = el("section", { class: "destra", "aria-labelledby": "titolo-del-codice" }, titoloDelCodice, scelte, ...(avviso === null ? [] : [avviso]), ...(chiuso && m.segnalazioni.length > 0 ? [segnalazioni] : []), contenuto);
 
   const corpo = el("div", { class: chiuso ? "corpo chiuso" : "corpo" });
   if (chiuso) corpo.append(destra);
@@ -438,8 +489,17 @@ function disegna(s: Stato): void {
 
   const attivo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const fuoco = attivo === null ? "" : (attivo.dataset["scelta"] ?? attivo.id);
+  // Lo scorrimento del codice resta com'era quando la pagina si ridisegna con lo stesso codice (lo zoom, una scheda, il divisore).
+  const altoDelCodice = document.getElementById("codice")?.scrollTop ?? 0;
   radice.replaceChildren(testata, corpo, el("p", { id: "annuncio", class: "solo-lettura", "aria-live": "polite" }));
+  const pre = document.getElementById("codice");
+  if (pre !== null) {
+    pre.addEventListener("scroll", ricordaLaRiga, { passive: true });
+    if (!("assente" in m.codice) && `${s.scelta.linguaggio} ${s.scelta.lingua}\n${m.codice.testo}` === codiceMostrato) pre.scrollTop = altoDelCodice;
+  }
   osservatoreDelFoglio.disconnect();
+  osservatoreDellaBarra.disconnect();
+  osservatoreDellaBarra.observe(scelte);
   if (!chiuso && schedaAttiva !== null) {
     mettiIlDisegno(s, foglio, schedaAttiva);
     osservatoreDelFoglio.observe(foglio, { box: "border-box" });
@@ -448,19 +508,47 @@ function disegna(s: Stato): void {
   const ritrovato = fuoco !== "" ? (radice.querySelector<HTMLElement>(`[data-scelta="${CSS.escape(fuoco)}"]`) ?? document.getElementById(fuoco)) : null;
   ritrovato?.focus({ preventScroll: true });
 
-  // Il codice si apre sulla riga di `main`, solo quando cambia il codice: un aggiornamento uguale non sposta chi sta leggendo.
+  // Il codice si apre sulla riga di `main`, solo quando cambia il codice: un aggiornamento uguale non sposta chi sta leggendo. La
+  // pagina rinata torna invece alla riga che aveva in cima, se il codice è lo stesso.
   if (!("assente" in m.codice)) {
     const chiave = `${s.scelta.linguaggio} ${s.scelta.lingua}\n${m.codice.testo}`;
     if (chiave !== codiceMostrato) {
       codiceMostrato = chiave;
-      portaSuMain(m.codice.rigaDiMain);
+      portaSullaRiga(rigaRicordata !== null && rigaRicordata.codice === improntaCorta(chiave) ? rigaRicordata.riga : m.codice.rigaDiMain);
     }
   } else codiceMostrato = "";
+  salvaIlRicordo();
 }
 
-/** Porta il codice sulla riga di `main`. Lo rifà dopo il primo disegno, a caratteri pronti e poco dopo, finché lo studente non
- *  tocca il codice: misurato nell'editor vero, un solo scorrimento subito restava sei righe sopra (l'impaginazione cambiava dopo). */
-function portaSuMain(riga: number): void {
+/** La prima riga del codice che si vede: dal bordo interno, e una riga è visibile se ne sporgono più di 2 pixel (lo scorrimento si
+ *  arrotonda al pixel, e con un'altra altezza delle righe una frazione della riga sopra restava «visibile»: misurato, 25 invece di
+ *  26, sulle macchine delle Actions). */
+function rigaInCimaDi(pre: HTMLElement): number | null {
+  const cima = pre.getBoundingClientRect().top + pre.clientTop;
+  const righe = pre.children;
+  for (let i = 0; i < righe.length; i++) if (righe[i]!.getBoundingClientRect().bottom > cima + 2) return i + 1;
+  return null;
+}
+
+/** La riga in cima, ricordata a ogni scorrimento del codice (una volta per fotogramma). */
+let ricordoInAttesa = false;
+function ricordaLaRiga(): void {
+  if (ricordoInAttesa) return;
+  ricordoInAttesa = true;
+  requestAnimationFrame(() => {
+    ricordoInAttesa = false;
+    const pre = document.getElementById("codice");
+    const riga = pre === null ? null : rigaInCimaDi(pre);
+    if (riga === null || codiceMostrato === "") return;
+    rigaRicordata = { codice: improntaCorta(codiceMostrato), riga };
+    salvaIlRicordo();
+  });
+}
+
+/** Porta il codice su una riga (quella di `main` all'apertura, o della funzione della scheda). Lo rifà dopo il primo disegno, a
+ *  caratteri pronti e poco dopo, finché lo studente non tocca il codice: misurato nell'editor vero, un solo scorrimento subito
+ *  restava sei righe sopra (l'impaginazione cambiava dopo). */
+function portaSullaRiga(riga: number): void {
   const pre = document.getElementById("codice");
   if (pre === null) return;
   let toccato = false;
@@ -483,6 +571,12 @@ function portaSuMain(riga: number): void {
 const osservatoreDelFoglio = new ResizeObserver(() => {
   const foglio = document.getElementById("disegno");
   if (foglio !== null && vista?.adattata) applicaLaScala(foglio);
+});
+// L'altezza della barra sopra il codice (va a capo quando la colonna è stretta): a una colonna il codice prende il resto della
+// finestra.
+const osservatoreDellaBarra = new ResizeObserver((voci) => {
+  const barra = voci[0]?.target as HTMLElement | undefined;
+  if (barra !== undefined) document.documentElement.style.setProperty("--barra", `${barra.offsetHeight}px`);
 });
 
 // --- Ciò che lo schermo mostra, letto dal DOM.
@@ -519,6 +613,7 @@ function fotografiaDelDisegno(): FotografiaDelDisegno {
       return r.left >= f.left - 1 && r.right <= f.right + 1 && r.top >= f.top - 1 && r.bottom <= f.bottom + 1;
     })(),
     carattere: ultimaLettura,
+    stili: ultimiStili,
     bollini: visti.map((b) => ({ ...b, etichetta: bollini.find((x) => x.getAttribute("data-id") === b.id)?.getAttribute("aria-label") ?? "" })),
     appaiamento: appaiamentoDellaScheda(),
     evidenziato: contorno?.getAttribute("data-evidenza") ?? null,
@@ -542,17 +637,58 @@ function appaiamentoDellaScheda(): string[] {
   return appaiamento(bollini, stato.modello.segnalazioni, schedaAttiva);
 }
 
+/** Il codice che va a capo, misurato: le righe su più righe dello schermo, la larghezza del contenuto e quella visibile, e per la
+ *  prima riga a capo dove comincia il testo (il primo carattere non bianco) e dove il seguito (il primo carattere della seconda
+ *  riga dello schermo). */
+function aCapo(pre: HTMLElement | null): Fotografia["aCapo"] {
+  if (pre === null) return { righe: 0, larghezza: 0, larghezzaVisibile: 0, rientro: null };
+  const testi = [...pre.querySelectorAll<HTMLElement>(".riga .t")];
+  const altezzaDellaRiga = parseFloat(getComputedStyle(pre).lineHeight) || 18;
+  const lunghe = testi.filter((t) => t.getBoundingClientRect().height > altezzaDellaRiga * 1.5);
+  let rientro: { inizio: number; seguito: number } | null = null;
+  const prima = lunghe[0];
+  if (prima !== undefined) {
+    // I caratteri della riga uno per uno, coi loro rettangoli: il primo non bianco, e il primo che sta più in basso della prima riga.
+    const caratteri: { c: string; r: DOMRect }[] = [];
+    const scorri = document.createTreeWalker(prima, NodeFilter.SHOW_TEXT);
+    for (let n = scorri.nextNode(); n !== null; n = scorri.nextNode())
+      for (let i = 0; i < (n.textContent ?? "").length; i++) {
+        const intervallo = document.createRange();
+        intervallo.setStart(n, i);
+        intervallo.setEnd(n, i + 1);
+        const r = intervallo.getClientRects()[0];
+        if (r !== undefined) caratteri.push({ c: n.textContent![i]!, r });
+      }
+    const primoPieno = caratteri.find((x) => x.c.trim() !== "");
+    const seguito = caratteri.find((x) => x.c.trim() !== "" && caratteri[0] !== undefined && x.r.top > caratteri[0].r.top + altezzaDellaRiga / 2);
+    if (primoPieno !== undefined && seguito !== undefined) rientro = { inizio: primoPieno.r.left, seguito: seguito.r.left };
+  }
+  return { righe: lunghe.length, larghezza: pre.scrollWidth, larghezzaVisibile: pre.clientWidth, rientro };
+}
+
+/** Dove starebbe la barra se non restasse in cima (per la prova: se lì sarebbe uscita dalla finestra, restare in vista è merito
+ *  dell'aggancio). Si toglie l'aggancio un attimo e si rimette: la barra occupa lo stesso posto nel flusso, nulla si sposta. */
+function senzaAggancio(barra: HTMLElement | null): number {
+  if (barra === null) return Number.NaN;
+  barra.style.position = "static";
+  const alto = barra.getBoundingClientRect().top;
+  barra.style.position = "";
+  return alto;
+}
+
 function fotografia(): Fotografia {
   const pre = document.getElementById("codice");
   const righe = pre === null ? [] : [...pre.querySelectorAll<HTMLElement>(".riga")];
-  let rigaInCima: number | null = null;
+  const rigaInCima = pre === null ? null : rigaInCimaDi(pre);
+  let rigaInFondo: number | null = null;
   if (pre !== null) {
-    // Dal bordo interno, e una riga è visibile se ne sporgono più di 2 pixel: lo scorrimento si arrotonda al pixel, e con un'altra
-    // altezza delle righe (le macchine delle Actions) una frazione della riga sopra restava «visibile» (misurato: 25 invece di 26).
-    const cima = pre.getBoundingClientRect().top + pre.clientTop;
-    const prima = righe.findIndex((r) => r.getBoundingClientRect().bottom > cima + 2);
-    rigaInCima = prima < 0 ? null : prima + 1;
+    const fondo = pre.getBoundingClientRect().bottom - pre.clientTop;
+    const ultima = righe.findLastIndex((r) => r.getBoundingClientRect().top < fondo - 2);
+    rigaInFondo = ultima < 0 ? null : ultima + 1;
   }
+  const scelte = document.querySelector<HTMLElement>(".destra .scelte");
+  const destra = document.querySelector<HTMLElement>(".destra");
+  const apriTesto = document.getElementById("apri-come-testo");
   const pulsanti = (etichetta: string) => [...document.querySelectorAll<HTMLElement>(`[role=radiogroup][aria-label="${CSS.escape(etichetta)}"] [role=radio]`)].map((b) => ({ nome: b.textContent ?? "", attivo: b.getAttribute("aria-checked") === "true" }));
   const colori: Record<string, string | null> = {};
   for (const sp of SPECIE) {
@@ -569,6 +705,13 @@ function fotografia(): Fotografia {
     funzioni: [...document.querySelectorAll<HTMLElement>("[role=tab]")].map((t) => ({ nome: t.textContent ?? "", attiva: t.getAttribute("aria-selected") === "true" })),
     voci: [...document.querySelectorAll<HTMLElement>(".voci li")].map((l) => l.innerText),
     rigaInCima,
+    rigaInFondo,
+    codiceInFondo: pre !== null && pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 2,
+    nascita: NASCITA,
+    titoloDelCodice: document.getElementById("titolo-del-codice")?.textContent ?? null,
+    pulsanteDelTesto: apriTesto === null ? null : { testo: apriTesto.textContent ?? "", suggerimento: apriTesto.getAttribute("title") ?? "" },
+    aCapo: aCapo(pre),
+    colonna: { barra: scelte?.getBoundingClientRect().top ?? Number.NaN, barraSenzaAggancio: senzaAggancio(scelte), riquadro: destra?.getBoundingClientRect().top ?? Number.NaN, altezzaDelCodice: pre?.getBoundingClientRect().height ?? 0, altezzaDellaFinestra: window.innerHeight, scorrimento: window.scrollY },
     editabili: document.querySelectorAll("input, textarea, select, [contenteditable]:not([contenteditable=false])").length,
     colori,
     fuoco: document.activeElement instanceof Element ? (document.activeElement.id || (document.activeElement as HTMLElement).dataset?.["scelta"] || (document.activeElement.getAttribute("data-id") !== null ? `bollino:${document.activeElement.getAttribute("data-id")}` : document.activeElement.tagName.toLowerCase())) : "",
@@ -577,6 +720,7 @@ function fotografia(): Fotografia {
       comando: document.getElementById("salva-codice")?.textContent ?? null,
       avviso: document.getElementById("avviso-testo")?.textContent ?? null,
       pulsanti: [...document.querySelectorAll<HTMLElement>("#avviso-salvataggio button")].map((b) => b.textContent ?? ""),
+      aspetti: [...document.querySelectorAll<HTMLElement>("#avviso-salvataggio button")].map((b) => ({ testo: b.textContent ?? "", colore: getComputedStyle(b).color, bordo: getComputedStyle(b).borderTopColor })),
       riga: document.getElementById("salvato")?.textContent ?? null,
     },
     versione: stato?.versione ?? -1,
@@ -597,9 +741,11 @@ window.addEventListener("message", (e: MessageEvent<VersoLaPagina>) => {
     const annuncio = document.getElementById("annuncio");
     if (annuncio !== null && detto) annuncio.textContent = detto;
   } else if (m.tipo === "fotografia") manda({ tipo: "fotografia", id: m.id, fotografia: fotografia() });
-  else if (m.tipo === "misura")
-    manda({ tipo: "misura", id: m.id, misura: { rapportoDeiPixel: window.devicePixelRatio, larghezza: window.innerWidth, altezza: window.innerHeight, caratterePx: parseFloat(getComputedStyle(document.body).fontSize), nomiDellaFinestra: NOMI_DELLA_FINESTRA } });
-  else if (m.tipo === "prova") {
+  else if (m.tipo === "scorri") {
+    // La pagina scorsa fino in fondo (come la rotella fuori dal codice), poi la fotografia al fotogramma dopo.
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    requestAnimationFrame(() => manda({ tipo: "fotografia", id: m.id, fotografia: fotografia() }));
+  } else if (m.tipo === "prova") {
     prova = m.prova;
     if (stato !== null) disegna(stato);
   } else if (m.tipo === "tasto") {
@@ -623,7 +769,7 @@ window.addEventListener("message", (e: MessageEvent<VersoLaPagina>) => {
   }
 });
 // Quando l'editor dà il fuoco alla pagina e dentro non c'è nessun elemento col fuoco, lo prende la scheda della funzione mostrata:
-// il tabulatore parte da lì (rilievo del valutatore: dall'apertura servivano nove Tab per entrare nella pagina).
+// il tabulatore parte da lì (dall'apertura servivano nove Tab per entrare nella pagina).
 window.addEventListener("focus", () => {
   if (document.activeElement === null || document.activeElement === document.body) document.querySelector<HTMLElement>('[role=tab][aria-selected="true"]')?.focus();
 });

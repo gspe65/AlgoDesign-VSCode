@@ -1,24 +1,29 @@
 // La logica dell'estensione, senza editor: il modello della pagina, l'appaiamento delle segnalazioni ai codici del nucleo nei due
-// versi (E3), nessun id interno nei testi visibili, i colori del codice e la lettura dei temi. Sul file vero del nucleo, quello che
+// versi, nessun id interno nei testi visibili, i colori del codice e la lettura dei temi. Sul file vero del nucleo, quello che
 // va nel pacchetto, e sul corpus di AlgoDesign all'etichetta (nucleo/sorgenti, da `bun run nucleo`).
 //
-// Con E11 il disegno del pacchetto con la misura fissa: i bollini appaiati alle segnalazioni su tutto il corpus, la vista (zoom,
-// divisore) e i nomi dei comandi dello zoom contro quelli di AlgoDesign.
+// Il disegno del pacchetto con la misura fissa: i bollini appaiati alle segnalazioni su tutto il corpus, la vista (zoom,
+// divisore, la dimensione e gli stili del carattere) e i nomi dei comandi dello zoom contro quelli di AlgoDesign.
 //
-// «Salva il codice come…»: il nome proposto, il primo nome libero, il confronto col file che c'è.
+// «Salva il codice come…»: il nome proposto, il primo nome libero, il confronto col file che c'è. Il file che non si legge e il
+// nucleo che manca o si ferma, ciascuno con la sua frase; il nucleo dell'estensione verificato prima di eseguirlo; gli
+// aggiornamenti in ordine; la riga della definizione di ogni funzione nel codice, per il clic sulla scheda.
 //
 // Che cosa NON guarda: la pagina vera nel browser della webview e «Problemi» nell'editor (la prova con l'editor); i temi veri
 // dell'editor (idem); l'ordine del tabulatore fra due bollini della stessa funzione su un file vero (nel corpus nessuna funzione
 // ne ha due: si prova la regola, `blocchiSegnalati`).
 
 import { describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appaiamento, blocchiSegnalati, bolliniDellSvg } from "../src/bollini";
 import { coloriDalleRegole, coloreDi, leggiJsonc, pezzi, regoleDelTema, TAVOLOZZE, type Pezzo } from "../src/colori";
-import { limitaLaScala, MASSIMA, MINIMA, PASSO, scalaAdatta, valida } from "../src/vista";
-import { linguaggiOfferti, modello, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
+import { DIMENSIONE_DEL_CARATTERE, limitaLaScala, MASSIMA, MINIMA, PASSO, scalaAdatta, STILI, stileTenuto, valida } from "../src/vista";
+import { linguaggiOfferti, modello, modelloDelFile, rigaDellaFunzione, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
+import { inOrdine } from "../src/ordine";
 import { altroNome, confronto, ESTENSIONI, nomeDelCodice } from "../src/salva";
+import { nucleoVerificato } from "../src/verifica";
 
 type Nucleo = typeof import("algodesign-core");
 const RADICE = join(import.meta.dir, "..");
@@ -51,7 +56,7 @@ describe("il modello della pagina", () => {
     expect(m.titolo).toBe("lettura-intero");
     expect(m.funzioni.map((f) => f.nome)).toEqual(["Programma principale"]);
     expect(m.segnalazioni).toEqual([]);
-    expect(m.codice).toEqual({ testo: g.generato ? g.testo : "", rigaDiMain: 26 });
+    expect(m.codice).toEqual({ testo: g.generato ? g.testo : "", rigaDiMain: 26, righeDelleFunzioni: {} });
   });
   test("per-passo-zero: la segnalazione intera nella forma di AlgoDesign, e al posto del codice il rimando", () => {
     const m = modello(vero, caso("tappa-2/per-passo-zero.algo"), "c", "it", "it");
@@ -102,7 +107,7 @@ describe("il modello della pagina", () => {
   });
 });
 
-// --- E3: le voci della pagina appaiate ai codici di `controlla` (errori e avvisi), per file e lingua, nei due versi, con le ripetizioni.
+// --- Le voci della pagina appaiate ai codici di `controlla` (errori e avvisi), per file e lingua, nei due versi, con le ripetizioni.
 type Coppia = { file: string; lingua: "it" | "en"; pagina: string[]; nucleo: string[] };
 const fuoriTappa: string[] = [];
 function coppie(costruisci: (testo: string, lingua: "it" | "en") => Modello): Coppia[] {
@@ -133,7 +138,7 @@ function spaiati(cc: Coppia[]): string[] {
   return motivi;
 }
 
-describe("E3: l'appaiamento delle segnalazioni ai codici del nucleo", () => {
+describe("l'appaiamento delle segnalazioni ai codici del nucleo", () => {
   const vere = coppie((t, l) => modello(vero, t, "c", "it", l));
   test("nei due versi, coi denominatori", () => {
     const voci = vere.reduce((n, c) => n + c.pagina.length, 0);
@@ -189,7 +194,7 @@ function interni(m: Modello, testi: ReturnType<typeof testiDellInterfaccia>, ids
   return trovati;
 }
 
-describe("E3: nessun id interno sullo schermo", () => {
+describe("nessun id interno sullo schermo", () => {
   test("su tutto il corpus, nelle due lingue dell'interfaccia e in ogni linguaggio offerto", () => {
     let modelli = 0;
     const trovati: string[] = [];
@@ -217,13 +222,13 @@ describe("E3: nessun id interno sullo schermo", () => {
   });
 });
 
-// --- E11 senza finestra: il disegno del pacchetto con la misura fissa della conformità, i bollini appaiati alle segnalazioni.
+// --- Il disegno senza finestra: quello del pacchetto con la misura fissa della conformità, i bollini appaiati alle segnalazioni.
 const misuraFissa = (t: string, stile?: string) => t.length * 7 + (stile === "grassetto" ? t.length : stile === "corsivo" ? t.length / 2 : 0);
 /** Misurati sul corpus del contratto 1.1 (le funzioni come la conformità; i bollini per lingua: 56 nelle due). */
 const FUNZIONI_DEL_CORPUS = 335;
 const BOLLINI_PER_LINGUA = 28;
 
-describe("E11: i bollini del disegno appaiati alle segnalazioni", () => {
+describe("i bollini del disegno appaiati alle segnalazioni", () => {
   type Giro = { disegni: number; bollini: Record<"it" | "en", number>; motivi: string[] };
   function giro(cambia?: (svg: string, file: string, funzione: string, lingua: "it" | "en") => string): Giro {
     const g: Giro = { disegni: 0, bollini: { it: 0, en: 0 }, motivi: [] };
@@ -246,7 +251,7 @@ describe("E11: i bollini del disegno appaiati alle segnalazioni", () => {
   }
   test("su tutto il corpus, ogni funzione nelle due lingue, nei due versi, coi denominatori", () => {
     const g = giro();
-    console.log(`E11: ${g.disegni} disegni, bollini it ${g.bollini.it} en ${g.bollini.en}, spaiati ${g.motivi.length}`);
+    console.log(`disegno: ${g.disegni} disegni, bollini it ${g.bollini.it} en ${g.bollini.en}, spaiati ${g.motivi.length}`);
     expect([g.disegni, g.bollini.it, g.bollini.en]).toEqual([FUNZIONI_DEL_CORPUS * 2, BOLLINI_PER_LINGUA, BOLLINI_PER_LINGUA]);
     expect(g.motivi).toEqual([]);
   });
@@ -282,6 +287,16 @@ describe("la vista del disegno: lo zoom e il divisore", () => {
     expect(valida({ scala: 9, adattata: false, scalaPrima: 2, chiuso: true, divisore: 95 })).toEqual({ scala: 4, adattata: false, scalaPrima: null, chiuso: true, divisore: 80 });
     expect(valida(undefined)).toEqual({ scala: 1, adattata: true, scalaPrima: null, chiuso: false, divisore: 50 });
     expect(valida({ adattata: true, scalaPrima: 0.8 }).scalaPrima).toBe(0.8);
+  });
+  test("la dimensione del carattere del disegno è quella del nucleo; i tre stili si riconoscono riletti, e uno ignorato no", async () => {
+    const { geometriaPredefinita } = (await import(join(RADICE, "nucleo", "sorgenti", "app", "core", "disegno", "tema.ts"))) as { geometriaPredefinita: { carattere: number } };
+    expect(DIMENSIONE_DEL_CARATTERE).toBe(geometriaPredefinita.carattere);
+    const [normale, grassetto, corsivo] = STILI;
+    const f = "system-ui, sans-serif";
+    expect([stileTenuto(normale, f, "15px system-ui, sans-serif"), stileTenuto(grassetto, f, "700 15px system-ui, sans-serif"), stileTenuto(corsivo, f, "italic 15px system-ui, sans-serif")].map((s) => s.tenuto)).toEqual([true, true, true]);
+    expect(stileTenuto(grassetto, f, "").chiesto).toBe("bold 15px system-ui, sans-serif");
+    // Controlli positivi: il corsivo riletto come normale, il grassetto riletto senza peso, un altro carattere.
+    expect([stileTenuto(corsivo, f, "15px system-ui, sans-serif"), stileTenuto(grassetto, f, "15px system-ui, sans-serif"), stileTenuto(normale, f, "10px sans-serif")].map((s) => s.tenuto)).toEqual([false, false, false]);
   });
   test("i nomi dei comandi dello zoom sono quelli di AlgoDesign, nelle due lingue", async () => {
     const { it } = (await import(join(RADICE, "nucleo", "sorgenti", "app", "i18n", "it.ts"))) as { it: Record<string, string> };
@@ -399,5 +414,147 @@ describe("«Salva il codice come…»", () => {
     // Controllo positivo: un carattere in più è «diverso», anche in fondo.
     expect(confronto(`${codice} `, codice)).toBe("diverso");
     expect(confronto("", codice)).toBe("diverso");
+  });
+});
+
+// --- Il clic sulla scheda di una funzione: la riga della sua definizione nel codice.
+/** Misurato sul corpus del contratto 1.1: le funzioni che non sono il programma principale. */
+const FUNZIONI_NON_PRINCIPALI = 143;
+
+describe("la riga della definizione di ogni funzione nel codice", () => {
+  /** La definizione come la scrive ciascun generatore: il tipo e il nome in C (col corpo che si apre), `def` in Python, la parola
+   *  della procedura o della funzione nello pseudocodice. */
+  const definizione = (riga: string, nome: string, linguaggio: string): boolean =>
+    linguaggio === "c" ? new RegExp(`^[A-Za-z_].*\\b${nome}\\(.*\\{$`).test(riga) : linguaggio === "python" ? riga.startsWith(`def ${nome}(`) : /^(FUNZIONE|PROCEDURA|FUNCTION|PROCEDURE)\b/.test(riga) && riga.includes(`${nome}(`);
+  test("su tutto il corpus, in ogni linguaggio offerto e nelle due lingue: trovata, ed è la definizione", () => {
+    let funzioni = 0;
+    let cercate = 0;
+    const sbagliate: string[] = [];
+    for (const c of corpus) {
+      const a = vero.apri(c.testo);
+      if (!a.ok) continue;
+      const altre = a.progetto.functions.filter((f) => f.kind !== "main");
+      funzioni += altre.length;
+      for (const l of linguaggiOfferti(true))
+        for (const lingua of ["it", "en"] as const) {
+          const m = modello(vero, c.testo, l, lingua, "it");
+          if ("assente" in m.codice) continue;
+          const righe = m.codice.testo.split("\n");
+          for (const f of altre) {
+            cercate++;
+            const r = m.codice.righeDelleFunzioni[f.id];
+            if (r === undefined || !definizione(righe[r - 1] ?? "", f.name ?? "?", l)) sbagliate.push(`${c.nome} ${l} ${lingua} ${f.name}: ${r === undefined ? "non trovata" : righe[r - 1]}`);
+          }
+        }
+    }
+    console.log(`definizioni: ${funzioni} funzioni non principali, ${cercate} ricerche nei codici generati, sbagliate ${sbagliate.length}`);
+    expect(funzioni).toBe(FUNZIONI_NON_PRINCIPALI);
+    expect(cercate).toBeGreaterThan(500);
+    expect(sbagliate).toEqual([]);
+  });
+  test("controllo positivo: la dichiarazione in cima al file e la chiamata non sono la definizione; un nome che non c'è è null", () => {
+    const t = "int doppio(int n);\nint main(void) {\n    x = doppio(2);\n}\nint doppio(int n) {\n    return 2 * n;\n}\n";
+    expect([rigaDellaFunzione(t, "c", "doppio"), rigaDellaFunzione(t, "c", "triplo"), rigaDellaFunzione(t, "c", "x(")]).toEqual([5, null, null]);
+    expect(rigaDellaFunzione("int doppio(int n);\n", "c", "doppio")).toBeNull();
+    // Nello pseudocodice «RESTITUISCE doppio(x)» sta senza rientro: non è la definizione.
+    expect(rigaDellaFunzione("FUNZIONE r ← doppio(n: intero)\nRESTITUISCE doppio(1)\n", "pseudocodice", "doppio")).toBe(1);
+    expect(rigaDellaFunzione("RESTITUISCE doppio(1)\n", "pseudocodice", "doppio")).toBeNull();
+  });
+});
+
+// --- Il file che non si legge, il nucleo che manca o si ferma: ciascuno con la sua frase.
+describe("il modello di un file letto dal disco, col nucleo dell'estensione", () => {
+  const t = testiDellInterfaccia("it");
+  const file = caso("tappa-1/lettura-intero.algo");
+  test("ogni caso con la sua frase: il nucleo che manca, il file che non si legge, il nucleo che si ferma, il file che non è un flowchart", () => {
+    const assente = (m: Modello) => ("assente" in m.codice ? m.codice.assente : "");
+    const fermo: Libreria = { ...vero, apri: () => { throw new Error("il nucleo si è fermato"); } };
+    const r = [
+      modelloDelFile(null, { testo: file }, "c", "it", "it", "x.algo"),
+      modelloDelFile(vero, { errore: "EACCES: accesso negato" }, "c", "it", "it", "x.algo"),
+      modelloDelFile(fermo, { testo: file }, "c", "it", "it", "x.algo"),
+      modelloDelFile(vero, { testo: "non è un flowchart" }, "c", "it", "it", "x.algo"),
+    ];
+    expect(r.map((x) => assente(x.modello))).toEqual([t.nucleoAssente, "Questo file non si legge dal disco: EACCES: accesso negato", t.nucleoFermo, t.apri]);
+    expect(r.map((x) => x.eccezione !== null)).toEqual([false, false, true, false]);
+    expect(r[2]!.eccezione).toContain("il nucleo si è fermato");
+    // Il file buono col nucleo buono: il modello, come senza questo passaggio.
+    expect(modelloDelFile(vero, { testo: file }, "c", "it", "it", "x.algo")).toEqual({ modello: modello(vero, file, "c", "it", "it"), eccezione: null });
+  });
+  test("i testi approvati: il nucleo cambiato, il nucleo fermo, il file che non si scrive, il salvataggio in un'altra cartella", () => {
+    expect(t.nucleoAssente).toBe("Il disegno non c'è: il nucleo di AlgoDesign dell'estensione è stato cambiato o rovinato. Serve una copia nuova dell'estensione.");
+    expect(t.nucleoFermo).toBe("Questo file non si apre: AlgoDesign si è fermato leggendolo. Aprilo in AlgoDesign per controllarlo.");
+    expect(t.nonSalvato.replace("{file}", "lettura-intero.c")).toBe("Il codice non si è salvato: «lettura-intero.c» non si può scrivere (forse è aperto in un altro programma, o la cartella è protetta). Scegli un'altra cartella con «Salva il codice come…».");
+    expect([t.salvato, t.salvatoAccanto]).toEqual(["Salvato in un'altra cartella: {percorso}", "Salvato accanto al flowchart: {file}"]);
+    expect([t.titoloDelCodice, t.apriComeTesto, t.apriComeTestoSuggerimento]).toEqual(["Codice generato dal flowchart", "Apri il file come testo", "Il file .algo così com'è (JSON), in sola lettura"]);
+  });
+  test("«non ancora»: il testo non mostra il nome interno del costrutto; le due lingue hanno le stesse chiavi e gli stessi segnaposti", () => {
+    const nonAncora: Libreria = { ...vero, genera: () => ({ generato: false, perche: "non-ancora", costrutto: "costrutto_interno" }) };
+    const m = modello(nonAncora, file, "c", "it", "it");
+    expect("assente" in m.codice ? m.codice.assente : "").toBe("Il codice non c'è: il generatore di C non sa ancora scrivere questo flowchart.");
+    const it = testiDellInterfaccia("it") as Record<string, unknown>;
+    const en = testiDellInterfaccia("en") as Record<string, unknown>;
+    expect(Object.keys(en).sort()).toEqual(Object.keys(it).sort());
+    const segnaposti = (v: unknown) => (typeof v === "string" ? (v.match(/\{\w+\}/g) ?? []).sort().join() : "");
+    expect(Object.keys(it).filter((k) => segnaposti(it[k]) !== segnaposti(en[k]))).toEqual([]);
+  });
+});
+
+// --- Il nucleo dell'estensione: verificato prima di eseguirlo, su una copia del file.
+describe("il nucleo dell'estensione verificato prima di eseguirlo", () => {
+  const dati = readFileSync(join(RADICE, "nucleo", "algodesign-core.cjs"));
+  const { costruzione } = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8")) as { costruzione: { byte: number; sha256: string } };
+  test("la copia vera si carica; un byte in più, un byte cambiato o un file che non c'è no, e il caricamento non si chiama", () => {
+    const cartella = mkdtempSync(join(tmpdir(), "algo  nucleo-"));
+    try {
+      const copia = join(cartella, "libreria.cjs");
+      const prova = (contenuto: Uint8Array | null, dichiarato: { byte: number | null; sha256: string } = costruzione) => {
+        rmSync(copia, { force: true });
+        if (contenuto !== null) writeFileSync(copia, contenuto);
+        let caricato = 0;
+        const r = nucleoVerificato(copia, dichiarato, () => ++caricato);
+        return { ok: r.nucleo !== null, caricato, motivo: r.motivo };
+      };
+      const cambiato = Buffer.from(dati);
+      cambiato[100] = cambiato[100]! ^ 1;
+      const esiti = [prova(dati), prova(Buffer.concat([dati, Buffer.from("\n")])), prova(cambiato), prova(null), prova(dati, { ...costruzione, byte: costruzione.byte })];
+      expect(esiti.map((e) => [e.ok, e.caricato])).toEqual([[true, 1], [false, 0], [false, 0], [false, 0], [true, 1]]);
+      expect(esiti[1]!.motivo).toContain(`${costruzione.byte + 1} byte`);
+      // Senza byte dichiarati (il nucleo dal file di una release) vale l'impronta.
+      expect([prova(dati, { byte: null, sha256: costruzione.sha256 }).ok, prova(cambiato, { byte: null, sha256: costruzione.sha256 }).ok]).toEqual([true, false]);
+    } finally {
+      rmSync(cartella, { recursive: true, force: true });
+    }
+  });
+});
+
+// --- Gli aggiornamenti in ordine: due in volo che finiscono al contrario, il vecchio si scarta.
+describe("gli aggiornamenti della pagina in ordine", () => {
+  /** Due aggiornamenti cominciati uno dopo l'altro, finiti nell'ordine opposto; con `scarta` falso il controllo non si fa. */
+  async function dueAlContrario(scarta: boolean): Promise<string[]> {
+    const ordine = inOrdine();
+    const arrivati: string[] = [];
+    const aggiorna = async (lettura: Promise<string>) => {
+      const n = ordine.comincia();
+      const testo = await lettura;
+      if (scarta && ordine.superato(n)) return;
+      arrivati.push(testo);
+    };
+    let primo!: (t: string) => void;
+    let secondo!: (t: string) => void;
+    const a = aggiorna(new Promise((r) => (primo = r)));
+    const b = aggiorna(new Promise((r) => (secondo = r)));
+    secondo("nuovo");
+    await b;
+    primo("vecchio");
+    await a;
+    return arrivati;
+  }
+  test("arriva solo il più recente; controllo positivo: senza il numero il vecchio copre il nuovo", async () => {
+    expect(await dueAlContrario(true)).toEqual(["nuovo"]);
+    expect(await dueAlContrario(false)).toEqual(["nuovo", "vecchio"]);
+    const o = inOrdine();
+    const uno = o.comincia();
+    expect(o.superato(uno)).toBe(false);
   });
 });
