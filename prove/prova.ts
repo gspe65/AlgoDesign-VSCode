@@ -404,7 +404,7 @@ prova(
 // per ogni sistema contro quelle che dichiara questa prova per la corsa (col pacchetto dato, quindi senza la costruzione).
 const sondeDelConteggio = esegui(["bun", join(RADICE, "prove", "conteggio.ts"), "--sonde"]);
 console.log(sondeDelConteggio.testo.trim());
-prova("il conteggio dei rapporti: ogni ramo rosso si accende da solo, i verdi restano verdi (anche senza la macchina di un sistema, dichiarata), e il testo della release nei suoi due casi", sondeDelConteggio.uscita === 0 && /^ESITO: VERDE/m.test(sondeDelConteggio.testo) && /^sonde: \d+ \(2 verdi, \d+ rami rossi\), testi 3; sbagliate 0;/m.test(sondeDelConteggio.testo), sondeDelConteggio.testo);
+prova("il conteggio dei rapporti: ogni ramo rosso si accende da solo, i verdi restano verdi (anche senza la macchina di un sistema, dichiarata), il testo della release nei suoi due casi e la matrice della corsa", sondeDelConteggio.uscita === 0 && /^ESITO: VERDE/m.test(sondeDelConteggio.testo) && /^sonde: \d+ \(2 verdi, \d+ rami rossi\), testi 3, matrici 2; sbagliate 0;/m.test(sondeDelConteggio.testo), sondeDelConteggio.testo);
 const dellaCorsa = PROVE_SENZA_EDITOR - 1 + PROVE_DELL_EDITOR;
 const conteggioDiverso = Object.entries(PREVISTE).filter(([, n]) => n !== dellaCorsa).map(([s, n]) => `${s} ${n}`);
 console.log(`prove della corsa: ${PROVE_SENZA_EDITOR - 1} senza editor + ${PROVE_DELL_EDITOR} con l'editor = ${dellaCorsa}; attese dal conteggio ${Object.entries(PREVISTE).map(([s, n]) => `${s} ${n}`).join(", ")}`);

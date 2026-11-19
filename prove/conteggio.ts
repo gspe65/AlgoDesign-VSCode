@@ -4,7 +4,7 @@
 // diverso da quello atteso qui per quel sistema (il denominatore non lo decide chi scrive il rapporto).
 //
 // Le due dichiarazioni della corsa lanciata a mano (gli ingressi del flusso, coi nomi della matrice: windows, linux, macos):
-// - `--togli <sistema>`: il controllo del conteggio. Il sistema resta nella matrice ma non scrive il rapporto, e il conteggio è
+// - `--togli <sistema>`: il controllo del conteggio. Il sistema è fuori dalla matrice e non scrive il rapporto, e il conteggio è
 //   rosso, sempre, anche insieme all'altra dichiarazione (vince lei);
 // - `--senza-macchina <sistema>`: GitHub non ha dato la macchina di quel sistema. Il sistema è fuori dalla matrice; il conteggio
 //   vuole verdi tutti gli altri, e un rapporto di quel sistema è un rosso (la dichiarazione era falsa). Al più un sistema.
@@ -15,14 +15,19 @@
 //
 //   bun prove/conteggio.ts --cartella <rapporti> --sha256 <impronta> [--togli <s>] [--senza-macchina <s>]
 //                          [--nota <note/v….md> --uscita <file> --pacchetto <nome> --corsa <n> --etichetta <t> --commit <sha> --repository <proprietario/nome>]
-//   bun prove/conteggio.ts --sonde      rapporti finti, uno per ramo rosso, e il testo della release nei suoi casi
+//   bun prove/conteggio.ts --matrice [--togli <s>] [--senza-macchina <s>] [--uscita <file>]
+//                          la matrice della corsa: tutti i sistemi meno i dichiarati, in JSON; con --uscita la riga
+//                          `matrice=<JSON>` in quel file (le uscite di un passo delle Actions). Una dichiarazione che non è un
+//                          sistema della corsa è un fermo. Si calcola qui perché una matrice di soli `include` con un `exclude`
+//                          che non combacia non si genera (misurato: nessun lavoro di prova nella corsa).
+//   bun prove/conteggio.ts --sonde      rapporti finti, uno per ramo rosso, il testo della release nei suoi casi e la matrice
 //
 // Uscite: 0 verde, 1 rosso, 2 fermo.
 //
 // Che cosa NON guarda: il contenuto delle prove, che sta nei rapporti e nei registri dei loro lavori; che GitHub non abbia dato
 // davvero la macchina (lo dichiara chi lancia la corsa, e la nota lo scrive come motivo).
 
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -35,9 +40,18 @@ import { VERSIONE } from "../strumenti/versione-vscodium";
  *  confronta questi numeri con quelli che dichiara lei. */
 export const PREVISTE: Record<string, number> = { win32: 93, linux: 93, darwin: 93 };
 export const SISTEMI = Object.keys(PREVISTE);
-/** I nomi della matrice del flusso (gli ingressi) e i nomi nella nota, per ciascun sistema. */
+/** I nomi della matrice del flusso (gli ingressi) e i nomi nella nota, per ciascun sistema; la macchina delle Actions. */
 const DALLA_MATRICE: Record<string, string> = { windows: "win32", linux: "linux", macos: "darwin" };
 const NELLA_NOTA: Record<string, string> = { win32: "Windows", linux: "Ubuntu", darwin: "macOS" };
+const MACCHINE: Record<string, string> = { windows: "windows-latest", linux: "ubuntu-latest", macos: "macos-latest" };
+
+/** La matrice della corsa: tutti i sistemi, meno quelli dichiarati (tolto o senza macchina); una dichiarazione che non è un
+ *  sistema della corsa è un fermo, col suo motivo. */
+export function matrice(d: Dichiarazioni): { sistema: string; os: string }[] | { fermo: string } {
+  for (const [nome, valore] of [["togli", d.togli], ["senza_macchina", d.senzaMacchina]] as const)
+    if (valore !== "" && MACCHINE[valore] === undefined) return { fermo: `«${nome}» vale «${valore}»: si aspetta ${Object.keys(MACCHINE).join(", ")}` };
+  return Object.entries(MACCHINE).filter(([nome]) => nome !== d.togli && nome !== d.senzaMacchina).map(([sistema, os]) => ({ sistema, os }));
+}
 
 type Rapporto = { sistema: string; editor: string | null; pacchetto: { sha256: string }; fatte: number; previste: number; fallite: string[]; esito: string };
 /** Le dichiarazioni della corsa, coi nomi della matrice; vuoto è nessuna. */
@@ -179,8 +193,31 @@ function sonde(): number {
   const distingue = scambiati !== testi[0]!.atteso;
   if (!distingue) sbagliate++;
   console.log(`${distingue ? "PASS" : "FAIL"}  sonda «il confronto del testo vede due numeri scambiati»`);
+  // La matrice: tutti, meno i dichiarati; una dichiarazione che non è un sistema della corsa è un fermo.
+  const m = (togli: string, senzaMacchina: string) => {
+    const x = matrice({ togli, senzaMacchina });
+    return "fermo" in x ? "fermo" : x.map((y) => `${y.sistema}/${y.os}`).join();
+  };
+  const matrici = [m("", ""), m("windows", ""), m("", "macos"), m("linux", "macos"), m("macos", "macos"), m("mac", ""), m("", "darwin")].join(" | ");
+  const matriciAttese = "windows/windows-latest,linux/ubuntu-latest,macos/macos-latest | linux/ubuntu-latest,macos/macos-latest | windows/windows-latest,linux/ubuntu-latest | windows/windows-latest | windows/windows-latest,linux/ubuntu-latest | fermo | fermo";
+  const matriciBuone = matrici === matriciAttese;
+  if (!matriciBuone) sbagliate++;
+  console.log(`${matriciBuone ? "PASS" : "FAIL"}  sonda «la matrice coi tre sistemi e con le dichiarazioni»: ${matrici}`);
+  // Da riga di comando: la riga delle uscite del passo con una dichiarazione, e il fermo con una dichiarazione non valida.
+  const uscite = mkdtempSync(join(tmpdir(), "algo  matrice-"));
+  try {
+    const file = join(uscite, "uscite.txt");
+    const buona = Bun.spawnSync(["bun", import.meta.path, "--matrice", "--togli", "", "--senza-macchina", "macos", "--uscita", file], { stdout: "pipe", stderr: "pipe" });
+    const riga = buona.exitCode === 0 ? readFileSync(file, "utf8") : "";
+    const invalida = Bun.spawnSync(["bun", import.meta.path, "--matrice", "--togli", "mac", "--senza-macchina", ""], { stdout: "pipe", stderr: "pipe" });
+    const daRiga = riga === `matrice=${JSON.stringify([{ sistema: "windows", os: "windows-latest" }, { sistema: "linux", os: "ubuntu-latest" }])}\n` && invalida.exitCode === 2 && /^FERMO: «togli» vale «mac»/m.test(invalida.stdout.toString());
+    if (!daRiga) sbagliate++;
+    console.log(`${daRiga ? "PASS" : "FAIL"}  sonda «la matrice da riga di comando: la riga delle uscite, e il fermo»: ${JSON.stringify(riga)}; uscita della dichiarazione non valida ${invalida.exitCode}`);
+  } finally {
+    rmSync(uscite, { recursive: true, force: true });
+  }
   const rossi = casi.filter((c) => c.atteso.length > 0).length;
-  console.log(`sonde: ${casi.length} (${casi.length - rossi} verdi, ${rossi} rami rossi), testi ${testi.length + 1}; sbagliate ${sbagliate}; attese per sistema ${SISTEMI.map((s) => `${s} ${PREVISTE[s]}`).join(", ")}`);
+  console.log(`sonde: ${casi.length} (${casi.length - rossi} verdi, ${rossi} rami rossi), testi ${testi.length + 1}, matrici 2; sbagliate ${sbagliate}; attese per sistema ${SISTEMI.map((s) => `${s} ${PREVISTE[s]}`).join(", ")}`);
   console.log(`ESITO: ${sbagliate === 0 ? "VERDE" : "ROSSO"}`);
   return sbagliate === 0 ? 0 : 1;
 }
@@ -189,10 +226,18 @@ if (import.meta.main) {
   const testo = { type: "string" } as const;
   const { values: o } = parseArgs({
     args: Bun.argv.slice(2),
-    options: { cartella: testo, sha256: testo, sonde: { type: "boolean" }, togli: testo, "senza-macchina": testo, nota: testo, uscita: testo, pacchetto: testo, corsa: testo, etichetta: testo, commit: testo, repository: testo },
+    options: { cartella: testo, sha256: testo, sonde: { type: "boolean" }, matrice: { type: "boolean" }, togli: testo, "senza-macchina": testo, nota: testo, uscita: testo, pacchetto: testo, corsa: testo, etichetta: testo, commit: testo, repository: testo },
     strict: true,
   });
   if (o.sonde) process.exit(sonde());
+  if (o.matrice) {
+    const dm: Dichiarazioni = { togli: (o.togli ?? "").trim(), senzaMacchina: (o["senza-macchina"] ?? "").trim() };
+    const x = matrice(dm);
+    if ("fermo" in x) fermo(x.fermo);
+    console.log(`matrice: ${x.map((y) => y.sistema).join(", ")}${dm.togli !== "" ? `; tolto apposta ${dm.togli}` : ""}${dm.senzaMacchina !== "" ? `; senza macchina ${dm.senzaMacchina}` : ""}`);
+    if (o.uscita !== undefined) appendFileSync(o.uscita, `matrice=${JSON.stringify(x)}\n`);
+    process.exit(0);
+  }
   const cartella = o.cartella ?? fermo("--cartella vuole la cartella dei rapporti");
   const atteso = o.sha256 ?? fermo("--sha256 vuole l'impronta del pacchetto costruito");
   if (!/^[0-9a-f]{64}$/.test(atteso)) fermo(`--sha256 non è un'impronta: ${atteso}`);

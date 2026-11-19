@@ -39,12 +39,21 @@ jobs:
     outputs:
       nome: ${{ steps.pacchetto.outputs.nome }}
       sha256: ${{ steps.pacchetto.outputs.sha256 }}
+      matrice: ${{ steps.matrice.outputs.matrice }}
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # La matrice delle prove la calcola il conteggio: tutti i sistemi meno quelli dichiarati (togli, senza_macchina). Un
+      # `exclude` su una matrice di soli `include` non combacia e la matrice non si genera.
+      - id: matrice
+        name: La matrice delle prove, meno i sistemi dichiarati
+        env:
+          TOGLI: ${{ inputs.togli }}
+          SENZA_MACCHINA: ${{ inputs.senza_macchina }}
+        run: bun prove/conteggio.ts --matrice --togli "$TOGLI" --senza-macchina "$SENZA_MACCHINA" --uscita "$GITHUB_OUTPUT"
       - run: bun run nucleo
       - name: L'etichetta è la versione del manifesto
         if: startsWith(github.ref, 'refs/tags/')
@@ -79,46 +88,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - sistema: windows
-            os: windows-latest
-          - sistema: linux
-            os: ubuntu-latest
-          - sistema: macos
-            os: macos-latest
-        # Il sistema senza macchina non chiede nemmeno la macchina; vuoto non toglie nulla.
-        exclude:
-          - sistema: ${{ inputs.senza_macchina }}
+        # Calcolata nel lavoro di costruzione: i sistemi tolti o senza macchina non ci sono e non chiedono la macchina.
+        include: ${{ fromJSON(needs.costruzione.outputs.matrice) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-        if: inputs.togli != matrix.sistema
       - uses: oven-sh/setup-bun@v2
-        if: inputs.togli != matrix.sistema
         with:
           bun-version: 1.4.2
-      - if: inputs.togli != matrix.sistema
-        run: bun install --frozen-lockfile
-      - if: inputs.togli != matrix.sistema
-        run: bun run nucleo
+      - run: bun install --frozen-lockfile
+      - run: bun run nucleo
       - uses: actions/download-artifact@v8
-        if: inputs.togli != matrix.sistema
         with:
           name: pacchetto
           path: pacchetto
       - id: vscodium
-        if: inputs.togli != matrix.sistema
         run: bun strumenti/vscodium.ts --cartella "$RUNNER_TEMP/vscodium" --uscita "$GITHUB_OUTPUT"
       - name: La prova con l'editor, sul pacchetto costruito
-        if: inputs.togli != matrix.sistema
         run: |
           comando=(bun prove/prova.ts --pacchetto "pacchetto/${{ needs.costruzione.outputs.nome }}" --editor "${{ steps.vscodium.outputs.editor }}" --rapporto "rapporto/rapporto-${{ matrix.sistema }}.json")
           if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a "${comando[@]}"; else "${comando[@]}"; fi
       - uses: actions/upload-artifact@v7
-        if: always() && inputs.togli != matrix.sistema
+        if: always()
         with:
           name: rapporto-${{ matrix.sistema }}
           path: rapporto/
