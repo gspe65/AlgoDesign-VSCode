@@ -39,7 +39,8 @@ import { parseArgs } from "node:util";
 import { linguaggiOfferti, modello, riempi, testiDellInterfaccia, type Libreria, type Modello } from "../src/documento";
 import type { Fotografia } from "../src/messaggi";
 import { DIMENSIONE_DEL_CARATTERE } from "../src/vista";
-import { differenze, esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, LICENZA_DEL_NUCLEO, motiviDelNucleo, NUCLEO, RADICE, SORGENTI, vociDelloZip } from "../strumenti/comune";
+import { differenze, esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, LICENZA_DEL_NUCLEO, motivoDelFermo, motiviDelNucleo, NUCLEO, RADICE, SORGENTI, vociDelloZip } from "../strumenti/comune";
+import { VERSIONE } from "../strumenti/versione-vscodium";
 import { PREVISTE } from "./conteggio";
 
 const { values: opzioni } = parseArgs({
@@ -52,6 +53,26 @@ const { values: opzioni } = parseArgs({
 const PROVE_SENZA_EDITOR = 35;
 const PROVE_DELL_EDITOR = 59;
 const TEST_ATTESI = 41;
+const provePreviste = PROVE_SENZA_EDITOR - (opzioni.pacchetto !== undefined ? 1 : 0) + (opzioni.editor !== undefined ? PROVE_DELL_EDITOR : 0);
+
+let fatte = 0;
+const fallite: string[] = [];
+/** Il pacchetto provato, per il rapporto (null finché non c'è). */
+let pacchettoDelRapporto: string | null = null;
+let rapportoScritto = false;
+/** Il rapporto della corsa, in JSON: lo legge il conteggio. */
+function scriviIlRapporto(esito: string, motivi: string[]): void {
+  if (opzioni.rapporto === undefined) return;
+  const p = pacchettoDelRapporto !== null && existsSync(pacchettoDelRapporto) ? readFileSync(pacchettoDelRapporto) : null;
+  mkdirSync(dirname(opzioni.rapporto), { recursive: true });
+  writeFileSync(opzioni.rapporto, `${JSON.stringify({ sistema: process.platform, architettura: process.arch, editor: opzioni.editor ?? null, pacchetto: { nome: pacchettoDelRapporto?.split(/[\\/]/).pop() ?? null, byte: p?.length ?? 0, sha256: p === null ? "" : impronta(p) }, fatte, previste: provePreviste, fallite: motivi, esito }, null, 2)}\n`);
+  rapportoScritto = true;
+}
+// Un fermo a metà (un editor che non parte, un'eccezione) scrive anche lui il rapporto, con esito FERMO e il suo motivo: senza,
+// il conteggio vedrebbe solo un rapporto mancante, e il motivo resterebbe nel registro del lavoro.
+process.on("exit", (codice) => {
+  if (!rapportoScritto && codice !== 0) scriviIlRapporto("FERMO", [...fallite, `FERMO: ${motivoDelFermo ?? `uscita ${codice}`}`]);
+});
 
 /** Ciò che il pacchetto contiene, e nient'altro. */
 const NEL_PACCHETTO = ["[Content_Types].xml", "extension.vsixmanifest", "extension/LICENSE.txt", "extension/LICENZA-ALGODESIGN.txt", "extension/dist/extension.cjs", "extension/dist/libreria.cjs", "extension/dist/pagina.js", "extension/dist/pagina.css", "extension/icona.png", "extension/package.json", "extension/readme.md"];
@@ -106,8 +127,6 @@ if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== IMPRONTA_DEL_NUCLEO) fermo("il f
 const cartella = mkdtempSync(join(tmpdir(), "algo  prova-"));
 process.on("exit", () => rmSync(cartella, { recursive: true, force: true }));
 
-let fatte = 0;
-const fallite: string[] = [];
 function prova(nome: string, buona: boolean, dettaglio = ""): void {
   fatte++;
   console.log(`${buona ? "PASS" : "FAIL"}  ${nome}${buona ? "" : `\n      ${dettaglio}`}`);
@@ -129,6 +148,7 @@ if (opzioni.pacchetto !== undefined) {
   if (!existsSync(VSIX)) fermo(`il pacchetto non c'è:\n${costruzione.testo}`);
 }
 const pacchetto = readFileSync(VSIX);
+pacchettoDelRapporto = VSIX;
 console.log(`pacchetto: ${pacchetto.length} byte, impronta ${impronta(pacchetto)}`);
 
 // --- I tipi: l'estensione contro il punto d'ingresso del nucleo; le prove e gli strumenti.
@@ -411,6 +431,20 @@ console.log(`prove della corsa: ${PROVE_SENZA_EDITOR - 1} senza editor + ${PROVE
 prova("il conteggio attende per ogni sistema le prove che questa prova dichiara per la corsa", Object.keys(PREVISTE).length === 3 && conteggioDiverso.length === 0, conteggioDiverso.join(", "));
 
 // --- Nell'editor dato.
+/** Il socket dell'editor, su macOS, sta nella cartella del profilo (`<dati>/profilo/<prime quattro cifre della versione>-main.sock`)
+ *  e un socket Unix ha al più 103 caratteri: oltre, l'editor non parte («listen EINVAL»). Misurato nelle Actions su macOS: la
+ *  cartella temporanea `/var/folders/<2>/<30>/T` è di 48 caratteri, quella della prova 67; con `dati  editor` il socket era di 103
+ *  caratteri (il primo avvio, al limite), con `dati  editor 2` di 105 (il secondo avvio, fermo). Con `dati  1` e `dati  2` è di 98.
+ *  Su Linux il socket sta in XDG_RUNTIME_DIR, su Windows è una pipe con nome: lì la lunghezza si stampa e basta. */
+const SOCKET_AL_PIU = 103;
+function cartellaDeiDati(nome: string): string {
+  const dati = join(cartella, nome);
+  const socket = join(dati, "profilo", `${VERSIONE.slice(0, 4)}-main.sock`);
+  console.log(`cartella dei dati «${nome}»: il socket dell'editor sarebbe di ${socket.length} caratteri (al più ${SOCKET_AL_PIU} su macOS)`);
+  if (process.platform === "darwin" && socket.length > SOCKET_AL_PIU) fermo(`il socket dell'editor sarebbe di ${socket.length} caratteri, oltre i ${SOCKET_AL_PIU} di macOS: ${socket}`);
+  return dati;
+}
+
 async function nellEditor(eseguibile: string): Promise<void> {
   if (!existsSync(eseguibile)) fermo(`non c'è ${eseguibile}`);
   const node = Bun.which("node") ?? fermo("node non c'è");
@@ -448,7 +482,7 @@ async function nellEditor(eseguibile: string): Promise<void> {
   console.log(`il flowchart con la riga lunga: codice ${"assente" in mLunga.codice ? "assente" : "c'è"}, la riga più lunga ${rigaPiuLunga} caratteri`);
 
   const uscita = join(cartella, "esiti.json");
-  const dati = join(cartella, "dati  editor");
+  const dati = cartellaDeiDati("dati  1");
   console.log(`APRO L'EDITOR: ${eseguibile}, una finestra per pochi secondi, con un profilo temporaneo`);
   const inizio = performance.now();
   const ambiente = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_ERRATO: fileErrato, ALGO_FUNZIONI: fileFunzioni, ALGO_PARENTESI: fileParentesi, ALGO_AVVISO: fileAvviso, ALGO_USCITA: uscita });
@@ -756,7 +790,7 @@ async function nellEditor(eseguibile: string): Promise<void> {
   const uscita2 = join(cartella, "esiti col nucleo cambiato.json");
   const ambiente2 = JSON.stringify({ ALGO_FILE: fileAlgo, ALGO_USCITA: uscita2, ALGO_NUCLEO_CAMBIATO: "1" });
   console.log(`APRO L'EDITOR UNA SECONDA VOLTA: l'estensione col file del nucleo di ${byteMutati} byte (${byteMutati - readFileSync(join(estratto, "extension", "dist", "libreria.cjs")).length} in più)`);
-  const figlio2 = Bun.spawn([node, join(RADICE, "prove", "lancia.cjs"), eseguibile, mutata, dove, join(cartella, "dati  editor 2"), ambiente2], { cwd: cartella, stdout: "pipe", stderr: "pipe" });
+  const figlio2 = Bun.spawn([node, join(RADICE, "prove", "lancia.cjs"), eseguibile, mutata, dove, cartellaDeiDati("dati  2"), ambiente2], { cwd: cartella, stdout: "pipe", stderr: "pipe" });
   const [fuori2, errori2] = await Promise.all([new Response(figlio2.stdout).text(), new Response(figlio2.stderr).text()]);
   if ((await figlio2.exited) !== 0 || !existsSync(uscita2)) fermo(`l'editor del secondo avvio non ha scritto gli esiti:\n${fuori2.slice(-3000)}\n${errori2.slice(-3000)}`);
   const e2 = JSON.parse(readFileSync(uscita2, "utf8")) as { lingua: string; pagina: Fotografia | null; byte: number };
@@ -774,13 +808,9 @@ async function nellEditor(eseguibile: string): Promise<void> {
 
 if (opzioni.editor !== undefined) await nellEditor(opzioni.editor);
 
-const provePreviste = PROVE_SENZA_EDITOR - (opzioni.pacchetto !== undefined ? 1 : 0) + (opzioni.editor !== undefined ? PROVE_DELL_EDITOR : 0);
 console.log(`prove: ${fatte}/${provePreviste}, fallite ${fallite.length}${opzioni.editor !== undefined ? "" : "; l'editor non è stato aperto"}`);
 const esito = fatte !== provePreviste ? "FERMO" : fallite.length > 0 ? "ROSSO" : "VERDE";
-if (opzioni.rapporto !== undefined) {
-  mkdirSync(dirname(opzioni.rapporto), { recursive: true });
-  writeFileSync(opzioni.rapporto, `${JSON.stringify({ sistema: process.platform, architettura: process.arch, editor: opzioni.editor ?? null, pacchetto: { nome: VSIX.split(/[\\/]/).pop(), byte: pacchetto.length, sha256: impronta(pacchetto) }, fatte, previste: provePreviste, fallite, esito }, null, 2)}\n`);
-}
+scriviIlRapporto(esito, esito === "FERMO" ? [...fallite, `FERMO: il denominatore non torna: dichiarate ${provePreviste}, eseguite ${fatte}`] : fallite);
 if (esito === "FERMO") {
   console.log(`FERMO: il denominatore non torna: dichiarate ${provePreviste}, eseguite ${fatte}`);
   process.exit(2);

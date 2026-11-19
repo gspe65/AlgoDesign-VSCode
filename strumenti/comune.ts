@@ -10,7 +10,11 @@ import { inflateRawSync } from "node:zlib";
 
 export const RADICE = join(import.meta.dir, "..");
 
+/** Il motivo dell'ultimo fermo, per chi all'uscita scrive un rapporto (la prova con l'editor: il conteggio lo legge). */
+export let motivoDelFermo: string | null = null;
+
 export function fermo(motivo: string): never {
+  motivoDelFermo = motivo;
   console.log(`FERMO: ${motivo}`);
   process.exit(2);
 }
