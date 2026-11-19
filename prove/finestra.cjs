@@ -32,12 +32,17 @@ async function aspetta(condizione, tetto = 8000) {
   return { f, ms: Date.now() - inizio, riuscita: false };
 }
 
-/** Un clic sulla pagina e lo stato nuovo che ne segue (una versione più alta). */
+/** Un clic sulla pagina e lo stato nuovo che ne segue (una versione più alta). Il clic su una scelta (linguaggio o lingua)
+ *  aspetta lo stato CON quella scelta: un aggiornamento venuto d'altrove (per esempio un avviso tardo dell'osservatore dei file)
+ *  alza la versione prima che la scelta arrivi all'estensione, e il flowchart aperto subito dopo leggeva l'ultima scelta
+ *  vecchia (visto una volta su macOS, nella corsa dell'etichetta, verde nella corsa precedente sullo stesso commit). */
 async function clic(selettore) {
   const prima = await foto();
   const f = await foto(selettore);
   if (f === null) throw new Error(`clic non riuscito su ${selettore}`);
-  return (await aspetta((g) => g.versione > (prima?.versione ?? -1))).f;
+  const scelta = /^\[data-scelta="([^"]+)"\]$/.exec(selettore)?.[1];
+  const conLaScelta = (g) => scelta === undefined || g.scelta?.linguaggio === scelta || g.scelta?.lingua === scelta;
+  return (await aspetta((g) => g.versione > (prima?.versione ?? -1) && conLaScelta(g))).f;
 }
 
 const vistaAttiva = () => {

@@ -84,10 +84,12 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     return { linguaggio: offerti.includes(s.linguaggio) ? s.linguaggio : LINGUAGGIO_INIZIALE, lingua: s.lingua === "en" ? "en" : "it" };
   }
 
+  /** Le due memorie si aggiornano insieme, senza un'attesa in mezzo: l'editor cambia il valore in memoria subito, alla chiamata,
+   *  e scrive su disco dopo. Con un'attesa fra le due, un flowchart aperto in quel momento (o un aggiornamento della pagina)
+   *  vedeva la scelta nuova per questo flowchart e la vecchia come «ultima». */
   private async ricorda(uri: vscode.Uri, s: Scelta): Promise<void> {
     const chiave = this.chiave(uri);
-    if (chiave !== null) await this.contesto.workspaceState.update(chiave, s);
-    await this.contesto.globalState.update(ULTIMA, s);
+    await Promise.all([chiave === null ? undefined : this.contesto.workspaceState.update(chiave, s), this.contesto.globalState.update(ULTIMA, s)]);
   }
 
   /** La vista ricordata per il flowchart; per uno mai aperto, il riquadro e il divisore dell'ultima, lo zoom adattato. */
@@ -101,8 +103,8 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
 
   private async ricordaVista(uri: vscode.Uri, v: Vista): Promise<void> {
     const chiave = this.chiave(uri, "vista");
-    if (chiave !== null) await this.contesto.workspaceState.update(chiave, valida(v));
-    await this.contesto.globalState.update(ULTIMA_VISTA, { chiuso: v.chiuso, divisore: valida(v).divisore });
+    // Insieme, come la scelta (vedi `ricorda`).
+    await Promise.all([chiave === null ? undefined : this.contesto.workspaceState.update(chiave, valida(v)), this.contesto.globalState.update(ULTIMA_VISTA, { chiuso: v.chiuso, divisore: valida(v).divisore })]);
   }
 
   async openCustomDocument(uri: vscode.Uri): Promise<vscode.CustomDocument> {

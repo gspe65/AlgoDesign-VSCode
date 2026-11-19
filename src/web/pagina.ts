@@ -742,6 +742,7 @@ function fotografia(): Fotografia {
       aspetti: [...document.querySelectorAll<HTMLElement>("#avviso-salvataggio button")].map((b) => ({ testo: b.textContent ?? "", colore: getComputedStyle(b).color, bordo: getComputedStyle(b).borderTopColor })),
       riga: document.getElementById("salvato")?.textContent ?? null,
     },
+    scelta: stato?.scelta ?? null,
     versione: stato?.versione ?? -1,
   };
 }

@@ -125,6 +125,8 @@ export type Fotografia = {
     readonly aspetti: readonly { readonly testo: string; readonly colore: string; readonly bordo: string }[];
     readonly riga: string | null;
   };
+  /** La scelta dello stato mostrato (linguaggio e lingua, come identificativi); null prima del primo stato. */
+  readonly scelta: Scelta | null;
   readonly versione: number;
 };
 
