@@ -10,7 +10,7 @@
 
 import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { BYTE_DEL_NUCLEO, esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, RADICE, rosso } from "./comune";
+import { esegui, fermo, FILE_DEL_NUCLEO, impronta, IMPRONTA_DEL_NUCLEO, RADICE, rosso } from "./comune";
 
 if (!existsSync(FILE_DEL_NUCLEO)) fermo("manca il file del nucleo: prima bun run nucleo");
 if (impronta(readFileSync(FILE_DEL_NUCLEO)) !== IMPRONTA_DEL_NUCLEO) rosso("il file del nucleo non ha l'impronta di nucleo.json: si rifà bun run nucleo");
@@ -28,8 +28,8 @@ try {
     format: "cjs",
     minify: { whitespace: true },
     external: ["vscode", "*libreria.cjs"],
-    // L'impronta e i byte dichiarati del nucleo: l'estensione esegue il file solo se li ha, e la pagina chiede l'impronta al browser.
-    define: { IMPRONTA_DEL_NUCLEO: JSON.stringify(IMPRONTA_DEL_NUCLEO), BYTE_DEL_NUCLEO: JSON.stringify(BYTE_DEL_NUCLEO) },
+    // L'impronta dichiarata del nucleo: l'estensione esegue il file solo se ce l'ha, e la pagina la chiede al browser.
+    define: { IMPRONTA_DEL_NUCLEO: JSON.stringify(IMPRONTA_DEL_NUCLEO) },
   });
   // La pagina: un modulo per il browser, senza import (tutto dentro), e il suo foglio di stile.
   await Bun.build({

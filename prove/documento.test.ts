@@ -21,7 +21,7 @@ import { appaiamento, blocchiSegnalati, bolliniDellSvg } from "../src/bollini";
 import { coloriDalleRegole, coloreDi, leggiJsonc, pezzi, regoleDelTema, TAVOLOZZE, type Pezzo } from "../src/colori";
 import { DIMENSIONE_DEL_CARATTERE, limitaLaScala, MASSIMA, MINIMA, PASSO, scalaAdatta, STILI, stileTenuto, valida } from "../src/vista";
 import { linguaggiOfferti, modello, modelloDelFile, rigaDellaFunzione, rigaDiMain, testiDellInterfaccia, testiVisibili, type Libreria, type Modello } from "../src/documento";
-import { inOrdine } from "../src/ordine";
+import { aggiornamentiInOrdine, inOrdine, type Ordine } from "../src/ordine";
 import { altroNome, confronto, ESTENSIONI, nomeDelCodice } from "../src/salva";
 import { nucleoVerificato } from "../src/verifica";
 
@@ -425,7 +425,7 @@ describe("la riga della definizione di ogni funzione nel codice", () => {
   /** La definizione come la scrive ciascun generatore: il tipo e il nome in C (col corpo che si apre), `def` in Python, la parola
    *  della procedura o della funzione nello pseudocodice. */
   const definizione = (riga: string, nome: string, linguaggio: string): boolean =>
-    linguaggio === "c" ? new RegExp(`^[A-Za-z_].*\\b${nome}\\(.*\\{$`).test(riga) : linguaggio === "python" ? riga.startsWith(`def ${nome}(`) : /^(FUNZIONE|PROCEDURA|FUNCTION|PROCEDURE)\b/.test(riga) && riga.includes(`${nome}(`);
+    linguaggio === "c" ? new RegExp(`^[A-Za-z_][A-Za-z0-9_ *]*\\b${nome}\\(.*\\{$`).test(riga) : linguaggio === "python" ? riga.startsWith(`def ${nome}(`) : /^(FUNZIONE|PROCEDURA|FUNCTION|PROCEDURE)\b/.test(riga) && riga.includes(`${nome}(`);
   test("su tutto il corpus, in ogni linguaggio offerto e nelle due lingue: trovata, ed è la definizione", () => {
     let funzioni = 0;
     let cercate = 0;
@@ -456,6 +456,12 @@ describe("la riga della definizione di ogni funzione nel codice", () => {
     const t = "int doppio(int n);\nint main(void) {\n    x = doppio(2);\n}\nint doppio(int n) {\n    return 2 * n;\n}\n";
     expect([rigaDellaFunzione(t, "c", "doppio"), rigaDellaFunzione(t, "c", "triplo"), rigaDellaFunzione(t, "c", "x(")]).toEqual([5, null, null]);
     expect(rigaDellaFunzione("int doppio(int n);\n", "c", "doppio")).toBeNull();
+    // Il commento di testa col titolo «… doppio(…)», senza rientro, non è la definizione: né su una riga, né come prima riga di un
+    // commento lungo, né come testo che finisce senza la graffa.
+    const conTitolo = "/* doppio(n): il doppio di n */\n// doppio(n)\n/*\n * Funzione doppio(n)\n */\nFunzione doppio(n) restituisce 2n\nint doppio(int n) {\n    return 2 * n;\n}\n";
+    expect(rigaDellaFunzione(conTitolo, "c", "doppio")).toBe(7);
+    expect(definizione("Funzione doppio(n) restituisce 2n", "doppio", "c")).toBe(false);
+    expect(definizione("/* int doppio(int n) { */", "doppio", "c")).toBe(false);
     // Nello pseudocodice «RESTITUISCE doppio(x)» sta senza rientro: non è la definizione.
     expect(rigaDellaFunzione("FUNZIONE r ← doppio(n: intero)\nRESTITUISCE doppio(1)\n", "pseudocodice", "doppio")).toBe(1);
     expect(rigaDellaFunzione("RESTITUISCE doppio(1)\n", "pseudocodice", "doppio")).toBeNull();
@@ -475,13 +481,18 @@ describe("il modello di un file letto dal disco, col nucleo dell'estensione", ()
       modelloDelFile(fermo, { testo: file }, "c", "it", "it", "x.algo"),
       modelloDelFile(vero, { testo: "non è un flowchart" }, "c", "it", "it", "x.algo"),
     ];
-    expect(r.map((x) => assente(x.modello))).toEqual([t.nucleoAssente, "Questo file non si legge dal disco: EACCES: accesso negato", t.nucleoFermo, t.apri]);
+    expect(r.map((x) => assente(x.modello))).toEqual([t.nucleoAssente, t.nonSiLegge, t.nucleoFermo, t.apri]);
+    // Il motivo del sistema non arriva allo schermo, in nessuna delle due lingue.
+    const inglese = modelloDelFile(vero, { errore: "EACCES: accesso negato" }, "c", "it", "en", "x.algo");
+    expect([assente(r[1]!.modello), assente(inglese.modello)].filter((s) => s.includes("EACCES") || s.includes("{"))).toEqual([]);
+    expect(assente(inglese.modello)).toBe(testiDellInterfaccia("en").nonSiLegge);
     expect(r.map((x) => x.eccezione !== null)).toEqual([false, false, true, false]);
     expect(r[2]!.eccezione).toContain("il nucleo si è fermato");
     // Il file buono col nucleo buono: il modello, come senza questo passaggio.
     expect(modelloDelFile(vero, { testo: file }, "c", "it", "it", "x.algo")).toEqual({ modello: modello(vero, file, "c", "it", "it"), eccezione: null });
   });
-  test("i testi approvati: il nucleo cambiato, il nucleo fermo, il file che non si scrive, il salvataggio in un'altra cartella", () => {
+  test("i testi fissi: il nucleo cambiato, il nucleo fermo, il file che non si legge, il file che non si scrive, il salvataggio in un'altra cartella", () => {
+    expect(t.nonSiLegge).toBe("Questo file non si legge: forse è stato spostato o cancellato, o lo sta usando un altro programma. Controlla che il file ci sia, poi chiudi questa pagina e riaprilo.");
     expect(t.nucleoAssente).toBe("Il disegno non c'è: il nucleo di AlgoDesign dell'estensione è stato cambiato o rovinato. Serve una copia nuova dell'estensione.");
     expect(t.nucleoFermo).toBe("Questo file non si apre: AlgoDesign si è fermato leggendolo. Aprilo in AlgoDesign per controllarlo.");
     expect(t.nonSalvato.replace("{file}", "lettura-intero.c")).toBe("Il codice non si è salvato: «lettura-intero.c» non si può scrivere (forse è aperto in un altro programma, o la cartella è protetta). Scegli un'altra cartella con «Salva il codice come…».");
@@ -503,25 +514,24 @@ describe("il modello di un file letto dal disco, col nucleo dell'estensione", ()
 // --- Il nucleo dell'estensione: verificato prima di eseguirlo, su una copia del file.
 describe("il nucleo dell'estensione verificato prima di eseguirlo", () => {
   const dati = readFileSync(join(RADICE, "nucleo", "algodesign-core.cjs"));
-  const { costruzione } = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8")) as { costruzione: { byte: number; sha256: string } };
+  const { file } = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8")) as { file: { sha256: string } };
   test("la copia vera si carica; un byte in più, un byte cambiato o un file che non c'è no, e il caricamento non si chiama", () => {
     const cartella = mkdtempSync(join(tmpdir(), "algo  nucleo-"));
     try {
       const copia = join(cartella, "libreria.cjs");
-      const prova = (contenuto: Uint8Array | null, dichiarato: { byte: number | null; sha256: string } = costruzione) => {
+      const prova = (contenuto: Uint8Array | null) => {
         rmSync(copia, { force: true });
         if (contenuto !== null) writeFileSync(copia, contenuto);
         let caricato = 0;
-        const r = nucleoVerificato(copia, dichiarato, () => ++caricato);
+        const r = nucleoVerificato(copia, file.sha256, () => ++caricato);
         return { ok: r.nucleo !== null, caricato, motivo: r.motivo };
       };
       const cambiato = Buffer.from(dati);
       cambiato[100] = cambiato[100]! ^ 1;
-      const esiti = [prova(dati), prova(Buffer.concat([dati, Buffer.from("\n")])), prova(cambiato), prova(null), prova(dati, { ...costruzione, byte: costruzione.byte })];
-      expect(esiti.map((e) => [e.ok, e.caricato])).toEqual([[true, 1], [false, 0], [false, 0], [false, 0], [true, 1]]);
-      expect(esiti[1]!.motivo).toContain(`${costruzione.byte + 1} byte`);
-      // Senza byte dichiarati (il nucleo dal file di una release) vale l'impronta.
-      expect([prova(dati, { byte: null, sha256: costruzione.sha256 }).ok, prova(cambiato, { byte: null, sha256: costruzione.sha256 }).ok]).toEqual([true, false]);
+      const esiti = [prova(dati), prova(Buffer.concat([dati, Buffer.from("\n")])), prova(cambiato), prova(null)];
+      expect(esiti.map((e) => [e.ok, e.caricato])).toEqual([[true, 1], [false, 0], [false, 0], [false, 0]]);
+      expect(esiti[1]!.motivo).toContain(`${dati.length + 1} byte`);
+      expect(esiti[3]!.motivo).toStartWith("non si legge");
     } finally {
       rmSync(cartella, { recursive: true, force: true });
     }
@@ -530,31 +540,40 @@ describe("il nucleo dell'estensione verificato prima di eseguirlo", () => {
 
 // --- Gli aggiornamenti in ordine: due in volo che finiscono al contrario, il vecchio si scarta.
 describe("gli aggiornamenti della pagina in ordine", () => {
-  /** Due aggiornamenti cominciati uno dopo l'altro, finiti nell'ordine opposto; con `scarta` falso il controllo non si fa. */
-  async function dueAlContrario(scarta: boolean): Promise<string[]> {
-    const ordine = inOrdine();
+  /** Due aggiornamenti della funzione della pagina, cominciati uno dopo l'altro e con le letture finite nell'ordine opposto. Con
+   *  un ordine che non scarta mai (il controllo positivo) il vecchio arriva dopo il nuovo. */
+  async function dueAlContrario(ordine?: Ordine): Promise<string[]> {
     const arrivati: string[] = [];
-    const aggiorna = async (lettura: Promise<string>) => {
-      const n = ordine.comincia();
-      const testo = await lettura;
-      if (scarta && ordine.superato(n)) return;
-      arrivati.push(testo);
-    };
-    let primo!: (t: string) => void;
-    let secondo!: (t: string) => void;
-    const a = aggiorna(new Promise((r) => (primo = r)));
-    const b = aggiorna(new Promise((r) => (secondo = r)));
-    secondo("nuovo");
+    const letture: ((t: string) => void)[] = [];
+    const aggiorna = aggiornamentiInOrdine(() => new Promise<string>((r) => letture.push(r)), (t) => arrivati.push(t), ordine);
+    const a = aggiorna();
+    const b = aggiorna();
+    letture[1]!("nuovo");
     await b;
-    primo("vecchio");
+    letture[0]!("vecchio");
     await a;
     return arrivati;
   }
   test("arriva solo il più recente; controllo positivo: senza il numero il vecchio copre il nuovo", async () => {
-    expect(await dueAlContrario(true)).toEqual(["nuovo"]);
-    expect(await dueAlContrario(false)).toEqual(["nuovo", "vecchio"]);
+    expect(await dueAlContrario()).toEqual(["nuovo"]);
+    expect(await dueAlContrario({ comincia: () => 0, superato: () => false })).toEqual(["nuovo", "vecchio"]);
     const o = inOrdine();
     const uno = o.comincia();
     expect(o.superato(uno)).toBe(false);
+  });
+  /** Il sito vero: nella pagina l'aggiornamento è questa funzione, e nessun'altra copia della regola. */
+  const motiviDelSito = (sorgente: string): string[] => {
+    const motivi: string[] = [];
+    if ((sorgente.match(/\baggiorna: aggiornamentiInOrdine\(/g) ?? []).length !== 1) motivi.push("l'aggiornamento della pagina non è aggiornamentiInOrdine");
+    if (/\.(comincia|superato)\(/.test(sorgente)) motivi.push("la pagina numera gli aggiornamenti da sé");
+    return motivi;
+  };
+  test("la pagina aggiorna con la stessa funzione; mutazioni: un aggiornamento scritto a mano, una regola copiata", () => {
+    const sorgente = readFileSync(join(RADICE, "src", "pagina.ts"), "utf8");
+    expect(motiviDelSito(sorgente)).toEqual([]);
+    const aMano = sorgente.replace("aggiorna: aggiornamentiInOrdine(", "aggiorna: (async () => undefined) ?? aggiornamentiInOrdine(");
+    expect(aMano).not.toBe(sorgente);
+    expect(motiviDelSito(aMano)).toEqual(["l'aggiornamento della pagina non è aggiornamentiInOrdine"]);
+    expect(motiviDelSito(`${sorgente}\nif (ordine.superato(numero)) return;`)).toEqual(["la pagina numera gli aggiornamenti da sé"]);
   });
 });

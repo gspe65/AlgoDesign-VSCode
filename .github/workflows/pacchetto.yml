@@ -2,6 +2,9 @@
 # il file, non se funziona: non aspetta le prove, e una macchina che manca non la ferma); provato con l'editor vero su
 # Windows, Ubuntu e macOS, contato, e solo allora messo in una release sull'etichetta. Su un'etichetta v<versione del manifesto> fa tutto; lanciata a mano
 # costruisce e prova senza release, e con `togli` lascia fuori un sistema dalla matrice: il conteggio deve dire rosso.
+# Lanciata a mano SULL'ETICHETTA con `senza_macchina` (GitHub non ha dato la macchina di quel sistema): il sistema è fuori dalla
+# matrice, il conteggio vuole verdi gli altri, e la release esce dicendo nella sua nota che quel sistema non è stato provato.
+# Il testo della release lo compone il conteggio (prove/conteggio.ts): la nota della versione e il paragrafo della corsa.
 
 name: pacchetto
 
@@ -11,7 +14,11 @@ on:
   workflow_dispatch:
     inputs:
       togli:
-        description: "Un sistema da lasciare fuori dalla matrice (controllo del conteggio): windows, linux o macos"
+        description: "Un sistema da lasciare fuori dalla matrice (controllo del conteggio, sempre rosso): windows, linux o macos"
+        required: false
+        default: ""
+      senza_macchina:
+        description: "Il sistema di cui GitHub non ha dato la macchina (fuori dalla matrice; la nota lo dice): windows, linux o macos"
         required: false
         default: ""
 
@@ -79,6 +86,9 @@ jobs:
             os: ubuntu-latest
           - sistema: macos
             os: macos-latest
+        # Il sistema senza macchina non chiede nemmeno la macchina; vuoto non toglie nulla.
+        exclude:
+          - sistema: ${{ inputs.senza_macchina }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -128,9 +138,12 @@ jobs:
           pattern: rapporto-*
           path: rapporti
       - name: Un rapporto verde per ogni sistema dichiarato, sul pacchetto costruito
+        env:
+          TOGLI: ${{ inputs.togli }}
+          SENZA_MACCHINA: ${{ inputs.senza_macchina }}
         run: |
           mkdir -p rapporti
-          bun prove/conteggio.ts --cartella rapporti --sha256 "${{ needs.costruzione.outputs.sha256 }}"
+          bun prove/conteggio.ts --cartella rapporti --sha256 "${{ needs.costruzione.outputs.sha256 }}" --togli "$TOGLI" --senza-macchina "$SENZA_MACCHINA"
 
   release:
     needs: [costruzione, conteggio]
@@ -140,23 +153,40 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
       - uses: actions/download-artifact@v8
         with:
           name: pacchetto
           path: pacchetto
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: rapporto-*
+          path: rapporti
       - name: Il file è quello costruito e provato
         run: |
           echo "${{ needs.costruzione.outputs.sha256 }}  pacchetto/${{ needs.costruzione.outputs.nome }}" | sha256sum -c -
+      - name: Il testo della release, dal conteggio dei rapporti
+        env:
+          TOGLI: ${{ inputs.togli }}
+          SENZA_MACCHINA: ${{ inputs.senza_macchina }}
+        run: |
+          nota="note/$GITHUB_REF_NAME.md"
+          if [ ! -f "$nota" ]; then echo "ROSSO: manca $nota"; exit 1; fi
+          mkdir -p rapporti
+          bun prove/conteggio.ts --cartella rapporti --sha256 "${{ needs.costruzione.outputs.sha256 }}" --togli "$TOGLI" --senza-macchina "$SENZA_MACCHINA" \
+            --nota "$nota" --uscita "$RUNNER_TEMP/testo-della-release.md" --pacchetto "${{ needs.costruzione.outputs.nome }}" \
+            --corsa "$GITHUB_RUN_ID" --etichetta "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY"
       - name: La release sull'etichetta
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           versione=$(node -p "require('./package.json').version")
-          nota="note/$GITHUB_REF_NAME.md"
-          if [ ! -f "$nota" ]; then echo "ROSSO: manca $nota"; exit 1; fi
+          testo="$RUNNER_TEMP/testo-della-release.md"
           # Le versioni 0.0.x sono di prova: pre-release, e il titolo lo dice.
           if [[ "$versione" == 0.0.* ]]; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "AlgoDesign-Code $versione (versione di prova)" --notes-file "$nota" "pacchetto/${{ needs.costruzione.outputs.nome }}"
+            gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease --title "AlgoDesign-Code $versione (versione di prova)" --notes-file "$testo" "pacchetto/${{ needs.costruzione.outputs.nome }}"
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "AlgoDesign-Code $versione" --notes-file "$nota" "pacchetto/${{ needs.costruzione.outputs.nome }}"
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "AlgoDesign-Code $versione" --notes-file "$testo" "pacchetto/${{ needs.costruzione.outputs.nome }}"
           fi

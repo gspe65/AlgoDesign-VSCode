@@ -169,6 +169,7 @@ function faiIlDisegno(s: Stato, funzione: string | null): void {
   // lo stesso motivo del codice.
   const senzaProgetto = s.modello.funzioni.length === 0 && "assente" in s.modello.codice ? s.modello.codice.assente : s.testi.apri;
   try {
+    if (prova.fermo === "apri") throw new Error("il nucleo si ferma aprendo (prova)");
     if (aperto.testo !== s.testo) {
       const a = nucleo.apri(s.testo);
       aperto = a.ok ? { testo: s.testo, progetto: a.progetto, controllo: nucleo.controlla(a.progetto) } : { testo: s.testo, progetto: null, controllo: null };
@@ -202,6 +203,7 @@ function faiIlDisegno(s: Stato, funzione: string | null): void {
   }
   ultimaLettura = lettura;
   try {
+    if (prova.fermo === "disegna") throw new Error("il nucleo si ferma disegnando (prova)");
     const d = nucleo.disegna(aperto.progetto, funzione, s.scelta.lingua, misura, carattere, { errori: aperto.controllo });
     disegnato = { ...d, carattere: lettura };
   } catch {
@@ -500,6 +502,10 @@ function disegna(s: Stato): void {
   osservatoreDelFoglio.disconnect();
   osservatoreDellaBarra.disconnect();
   osservatoreDellaBarra.observe(scelte);
+  osservatoreSopraIlCodice.disconnect();
+  osservatoreSopraIlCodice.observe(testata);
+  const colonnaDestra = document.querySelector(".destra");
+  if (colonnaDestra !== null) osservatoreSopraIlCodice.observe(colonnaDestra);
   if (!chiuso && schedaAttiva !== null) {
     mettiIlDisegno(s, foglio, schedaAttiva);
     osservatoreDelFoglio.observe(foglio, { box: "border-box" });
@@ -578,6 +584,12 @@ const osservatoreDellaBarra = new ResizeObserver((voci) => {
   const barra = voci[0]?.target as HTMLElement | undefined;
   if (barra !== undefined) document.documentElement.style.setProperty("--barra", `${barra.offsetHeight}px`);
 });
+// Ciò che sta sopra il codice (la testata e, nella colonna destra, le segnalazioni, la barra, l'avviso), in pixel dalla cima della
+// pagina: a due colonne il codice prende il resto della finestra. Si rimisura quando la colonna destra o la testata cambiano.
+const osservatoreSopraIlCodice = new ResizeObserver(() => {
+  const pre = document.getElementById("codice");
+  if (pre !== null) document.documentElement.style.setProperty("--sopra-il-codice", `${Math.round(pre.getBoundingClientRect().top + window.scrollY)}px`);
+});
 
 // --- Ciò che lo schermo mostra, letto dal DOM.
 
@@ -641,7 +653,14 @@ function appaiamentoDellaScheda(): string[] {
  *  prima riga a capo dove comincia il testo (il primo carattere non bianco) e dove il seguito (il primo carattere della seconda
  *  riga dello schermo). */
 function aCapo(pre: HTMLElement | null): Fotografia["aCapo"] {
-  if (pre === null) return { righe: 0, larghezza: 0, larghezzaVisibile: 0, rientro: null };
+  if (pre === null) return { righe: 0, larghezza: 0, larghezzaVisibile: 0, rientro: null, tetto: null };
+  // Il tetto del rientro del seguito: una riga di prova rientrata di 400 caratteri, messa un attimo nel codice e tolta.
+  const sonda = el("div", { class: "riga" }, el("span", { class: "n" }, "0"), el("span", { class: "t" }, "x"));
+  const testoDellaSonda = sonda.querySelector<HTMLElement>(".t")!;
+  testoDellaSonda.style.setProperty("--rientro", "400");
+  pre.append(sonda);
+  const tetto = { sospeso: parseFloat(getComputedStyle(testoDellaSonda).paddingLeft) || 0, larghezza: pre.clientWidth };
+  sonda.remove();
   const testi = [...pre.querySelectorAll<HTMLElement>(".riga .t")];
   const altezzaDellaRiga = parseFloat(getComputedStyle(pre).lineHeight) || 18;
   const lunghe = testi.filter((t) => t.getBoundingClientRect().height > altezzaDellaRiga * 1.5);
@@ -663,7 +682,7 @@ function aCapo(pre: HTMLElement | null): Fotografia["aCapo"] {
     const seguito = caratteri.find((x) => x.c.trim() !== "" && caratteri[0] !== undefined && x.r.top > caratteri[0].r.top + altezzaDellaRiga / 2);
     if (primoPieno !== undefined && seguito !== undefined) rientro = { inizio: primoPieno.r.left, seguito: seguito.r.left };
   }
-  return { righe: lunghe.length, larghezza: pre.scrollWidth, larghezzaVisibile: pre.clientWidth, rientro };
+  return { righe: lunghe.length, larghezza: pre.scrollWidth, larghezzaVisibile: pre.clientWidth, rientro, tetto };
 }
 
 /** Dove starebbe la barra se non restasse in cima (per la prova: se lì sarebbe uscita dalla finestra, restare in vista è merito
@@ -711,7 +730,7 @@ function fotografia(): Fotografia {
     titoloDelCodice: document.getElementById("titolo-del-codice")?.textContent ?? null,
     pulsanteDelTesto: apriTesto === null ? null : { testo: apriTesto.textContent ?? "", suggerimento: apriTesto.getAttribute("title") ?? "" },
     aCapo: aCapo(pre),
-    colonna: { barra: scelte?.getBoundingClientRect().top ?? Number.NaN, barraSenzaAggancio: senzaAggancio(scelte), riquadro: destra?.getBoundingClientRect().top ?? Number.NaN, altezzaDelCodice: pre?.getBoundingClientRect().height ?? 0, altezzaDellaFinestra: window.innerHeight, scorrimento: window.scrollY },
+    colonna: { barra: scelte?.getBoundingClientRect().top ?? Number.NaN, barraSenzaAggancio: senzaAggancio(scelte), altezzaDellaBarra: scelte?.offsetHeight ?? Number.NaN, riquadro: destra?.getBoundingClientRect().top ?? Number.NaN, altezzaDelCodice: pre?.getBoundingClientRect().height ?? 0, fondoDelCodice: (pre?.getBoundingClientRect().bottom ?? Number.NaN) + window.scrollY, altezzaDellaFinestra: window.innerHeight, scorrimento: window.scrollY },
     editabili: document.querySelectorAll("input, textarea, select, [contenteditable]:not([contenteditable=false])").length,
     colori,
     fuoco: document.activeElement instanceof Element ? (document.activeElement.id || (document.activeElement as HTMLElement).dataset?.["scelta"] || (document.activeElement.getAttribute("data-id") !== null ? `bollino:${document.activeElement.getAttribute("data-id")}` : document.activeElement.tagName.toLowerCase())) : "",
@@ -747,6 +766,8 @@ window.addEventListener("message", (e: MessageEvent<VersoLaPagina>) => {
     requestAnimationFrame(() => manda({ tipo: "fotografia", id: m.id, fotografia: fotografia() }));
   } else if (m.tipo === "prova") {
     prova = m.prova;
+    // Una prova nuova riapre il flowchart: dopo un nucleo fermato dalla prova, il flowchart aperto non resta quello fallito.
+    aperto = { testo: null, progetto: null, controllo: null };
     if (stato !== null) disegna(stato);
   } else if (m.tipo === "tasto") {
     // Un tasto premuto sull'elemento col fuoco: arriva ai gestori della pagina (non alle azioni predefinite del browser).

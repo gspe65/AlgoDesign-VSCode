@@ -83,6 +83,14 @@ exports.run = async () => {
   // L'estensione attivata prima di tutto: i comandi di prova esistono solo dopo. Se la pagina poi non si apre, lo dice la prova
   // dell'apertura, non un comando «non trovato» (misurato su macOS nelle Actions: attivazione oltre l'attesa).
   await vscode.extensions.getExtension("gilan65.algodesign-code")?.activate();
+  // Il secondo avvio, con l'estensione il cui file del nucleo era già cambiato prima dell'avvio: solo la pagina del primo
+  // flowchart, come la vede lo studente, e i byte del file del nucleo letti da qui (che nessuno l'abbia rimesso).
+  if (process.env.ALGO_NUCLEO_CAMBIATO === "1") {
+    const libreria = join(vscode.extensions.getExtension("gilan65.algodesign-code").extensionPath, "dist", "libreria.cjs");
+    const pagina = await apri(ALGO_FILE);
+    writeFileSync(ALGO_USCITA, JSON.stringify({ lingua: vscode.env.language, pagina, byte: readFileSync(libreria).length }));
+    return;
+  }
   const esiti = { lingua: vscode.env.language };
   const originale = readFileSync(ALGO_FILE, "utf8");
   const originaleErrato = readFileSync(ALGO_ERRATO);
@@ -181,6 +189,16 @@ exports.run = async () => {
   ds.carattereIgnorato = (await aspetta((f) => f.disegno.svg === null, 3000)).f;
   await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null });
   ds.carattereRimesso = (await aspetta((f) => f.disegno.svg !== null, 3000)).f;
+  // Il nucleo della pagina che si ferma aprendo il flowchart, poi disegnandolo: la pagina dice che AlgoDesign si è fermato, e
+  // senza la prova disegna di nuovo.
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null, fermo: "apri" });
+  ds.fermoAprendo = (await aspetta((f) => f.disegno.svg === null, 3000)).f;
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null });
+  ds.fermoAprendoRimesso = (await aspetta((f) => f.disegno.svg !== null, 3000)).f;
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null, fermo: "disegna" });
+  ds.fermoDisegnando = (await aspetta((f) => f.disegno.svg === null, 3000)).f;
+  await vscode.commands.executeCommand("algo.prova.disegno", { misuraFissa: false, carattere: null });
+  ds.fermoRimesso = (await aspetta((f) => f.disegno.svg !== null, 3000)).f;
 
   // Il flowchart con più funzioni, mai aperto: il divisore dell'ultimo, lo zoom adattato.
   ds.funzioni = await apri(ALGO_FUNZIONI);

@@ -75,7 +75,7 @@ const TESTI = {
     voceErrore: "Errore in «{dove}»: {breve}",
     voceAvviso: "Avviso in «{dove}»: {breve}",
     apri: "Questo file non si apre: non contiene un flowchart di AlgoDesign valido.",
-    nonSiLegge: "Questo file non si legge dal disco: {motivo}",
+    nonSiLegge: "Questo file non si legge: forse è stato spostato o cancellato, o lo sta usando un altro programma. Controlla che il file ci sia, poi chiudi questa pagina e riaprilo.",
     nucleoFermo: "Questo file non si apre: AlgoDesign si è fermato leggendolo. Aprilo in AlgoDesign per controllarlo.",
     "errori-statici-1": "Il codice non c'è: il flowchart ha 1 errore da correggere in AlgoDesign. Lo trovi in «Errori e avvisi».",
     "errori-statici-n": "Il codice non c'è: il flowchart ha {n} errori da correggere in AlgoDesign. Li trovi in «Errori e avvisi».",
@@ -130,7 +130,7 @@ const TESTI = {
     voceErrore: "Error in “{dove}”: {breve}",
     voceAvviso: "Warning in “{dove}”: {breve}",
     apri: "This file cannot be opened: it does not contain a valid AlgoDesign flowchart.",
-    nonSiLegge: "This file cannot be read from disk: {motivo}",
+    nonSiLegge: "This file cannot be read: it may have been moved or deleted, or another program may be using it. Check that the file is there, then close this page and open it again.",
     nucleoFermo: "This file does not open: AlgoDesign stopped while reading it. Open it in AlgoDesign to check it.",
     "errori-statici-1": "There is no code: the flowchart has 1 error to fix in AlgoDesign. You find it in “Errors and warnings”.",
     "errori-statici-n": "There is no code: the flowchart has {n} errors to fix in AlgoDesign. You find them in “Errors and warnings”.",
@@ -178,18 +178,20 @@ export function rigaDiMain(testo: string, linguaggio: string): number {
 
 /** La riga (da 1) della definizione di una funzione nel codice, come la scrive ciascun generatore: in Python `def nome(`; nello
  *  pseudocodice la riga che comincia con la parola della funzione o della procedura (lì anche «RESTITUISCE» sta senza rientro);
- *  in C la prima riga senza rientro col nome seguito da una parentesi che non finisce con `;` (le dichiarazioni in cima al file
- *  finiscono così, le chiamate stanno dentro un corpo, rientrate). Null se non c'è: allora il clic sulla scheda non sposta il
- *  codice. */
+ *  in C la prima riga senza rientro fatta del tipo (parole, spazi, `*`), del nome, della parentesi e del corpo che si apre con
+ *  `{` in fondo (le dichiarazioni in cima al file finiscono con `;`, le chiamate stanno dentro un corpo, rientrate, e un commento
+ *  di testa col titolo «… nome(…)» comincia con `/` o finisce senza `{`). Null se non c'è: allora il clic sulla scheda non sposta
+ *  il codice. */
 export function rigaDellaFunzione(testo: string, linguaggio: string, nome: string): number | null {
   if (!/^[\p{L}_][\p{L}\p{N}_]*$/u.test(nome)) return null;
   const chiamata = new RegExp(`(?<![\\p{L}\\p{N}_])${nome}\\s*\\(`, "u");
+  const inC = new RegExp(`^[\\p{L}_][\\p{L}\\p{N}_ *]*(?<![\\p{L}\\p{N}_])${nome}\\s*\\(.*\\{\\s*$`, "u");
   const definizione =
     linguaggio === "python"
       ? (r: string) => r.startsWith(`def ${nome}(`)
       : linguaggio === "pseudocodice"
         ? (r: string) => /^(FUNZIONE|PROCEDURA|FUNCTION|PROCEDURE)\b/.test(r) && chiamata.test(r)
-        : (r: string) => r !== "" && !/^\s/.test(r) && !/;\s*$/.test(r) && chiamata.test(r);
+        : (r: string) => inC.test(r);
   const i = testo.split("\n").findIndex(definizione);
   return i < 0 ? null : i + 1;
 }
@@ -248,7 +250,8 @@ export function modelloDelFile(libreria: Libreria | null, lettura: Lettura, ling
   const testi = testiDellInterfaccia(interfaccia);
   const senza = (assente: string): Modello => ({ titolo: nomeDelFile, funzioni: [], segnalazioni: [], codice: { assente } });
   if (libreria === null) return { modello: senza(testi.nucleoAssente), eccezione: null };
-  if ("errore" in lettura) return { modello: senza(riempi(testi.nonSiLegge, { motivo: lettura.errore })), eccezione: null };
+  // Sullo schermo la frase fissa, col rimedio; il motivo del sistema va nel registro (chi chiama lo scrive lì).
+  if ("errore" in lettura) return { modello: senza(testi.nonSiLegge), eccezione: null };
   try {
     return { modello: modello(libreria, lettura.testo, linguaggio, lingua, interfaccia), eccezione: null };
   } catch (e) {
