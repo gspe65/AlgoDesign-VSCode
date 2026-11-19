@@ -127,6 +127,8 @@ export type Fotografia = {
   };
   /** La scelta dello stato mostrato (linguaggio e lingua, come identificativi); null prima del primo stato. */
   readonly scelta: Scelta | null;
+  /** Vero finché il codice sta ancora andando sulla riga chiesta (l'apertura, una scheda, la pagina rinata). */
+  readonly rigaInArrivo: boolean;
   readonly versione: number;
 };
 

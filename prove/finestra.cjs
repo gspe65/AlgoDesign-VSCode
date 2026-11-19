@@ -20,17 +20,44 @@ async function foto(selettore, tasto) {
   }
 }
 
-/** Attende una fotografia che soddisfi la condizione; restituisce l'ultima vista e i millisecondi. */
+/** La risposta intera: la fotografia, l'indirizzo della pagina che ha risposto e la vista che l'estensione ricorda per lei. */
+async function fotoIntera() {
+  try {
+    return await vscode.commands.executeCommand("algo.prova.fotografia");
+  } catch {
+    return null;
+  }
+}
+
+/** Attende una fotografia che soddisfi la condizione (che riceve anche la risposta intera); restituisce l'ultima vista e i
+ *  millisecondi. Si aspetta sempre un FATTO, mai un tempo: un'attesa a tempo, o su una versione qualsiasi più nuova, ha dato
+ *  esiti intermittenti sulle macchine delle Actions. */
 async function aspetta(condizione, tetto = 8000) {
   const inizio = Date.now();
   let f = null;
   while (Date.now() - inizio < tetto) {
-    f = await foto();
-    if (f !== null && condizione(f)) return { f, ms: Date.now() - inizio, riuscita: true };
+    const r = await fotoIntera();
+    f = r?.fotografia ?? null;
+    if (f !== null && condizione(f, r)) return { f, ms: Date.now() - inizio, riuscita: true };
     await pausa(40);
   }
   return { f, ms: Date.now() - inizio, riuscita: false };
 }
+
+/** La vista della pagina è arrivata all'estensione (che la ricorda, e con quella riapre il flowchart), e il codice è sulla sua
+ *  riga. Prima di chiudere la pagina o di cambiare scheda. */
+const vicino = (a, b) => typeof a === "number" && typeof b === "number" && Math.abs(a - b) < 1e-9;
+const vistaArrivata = (f, r) => {
+  const v = r?.vistaRicordata;
+  const d = f.disegno;
+  return !f.rigaInArrivo && v !== undefined && v.divisore === d.divisore && v.chiuso === d.chiuso && v.adattata === d.adattata && (d.adattata || vicino(v.scala, d.scala));
+};
+async function aspettaLaVista() {
+  return (await aspetta(vistaArrivata, 5000)).f;
+}
+
+/** Lo stesso file, dall'indirizzo che la pagina ha dato. */
+const stessoFile = (indirizzo, file) => typeof indirizzo === "string" && vscode.Uri.parse(indirizzo).fsPath.toLowerCase() === file.toLowerCase();
 
 /** Un clic sulla pagina e lo stato nuovo che ne segue (una versione più alta). Il clic su una scelta (linguaggio o lingua)
  *  aspetta lo stato CON quella scelta: un aggiornamento venuto d'altrove (per esempio un avviso tardo dell'osservatore dei file)
@@ -50,22 +77,24 @@ const vistaAttiva = () => {
   return input instanceof vscode.TabInputCustom ? { tipo: "pagina", viewType: input.viewType, uri: input.uri.toString() } : input instanceof vscode.TabInputText ? { tipo: "testo", uri: input.uri.toString() } : { tipo: String(input) };
 };
 
-/** Apre il file come lo apre un doppio clic: l'editor predefinito per quel file. */
+/** Apre il file come lo apre un doppio clic: l'editor predefinito per quel file. Aspetta la pagina DI QUEL FILE, col suo stato e
+ *  col codice sulla sua riga: subito dopo l'apertura può rispondere ancora la pagina di prima. */
 async function apri(file) {
   await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(file));
   // La prima apertura su una macchina lenta può superare gli 8 secondi (misurato su macOS nelle Actions).
-  return (await aspetta((f) => f.versione > 0 && f.titolo !== "", 20000)).f;
+  return (await aspetta((f, r) => stessoFile(r?.uri, file) && f.versione > 0 && f.titolo !== "" && !f.rigaInArrivo, 20000)).f;
 }
 
 /** La pagina a una colonna: lo zoom dell'editor, un passo alla volta, finché la pagina è sotto i 760 pixel (al più sei passi); poi
  *  la pagina scorsa fino in fondo e ciò che mostra. Lo zoom torna com'era. */
 async function aUnaColonna() {
+  // Ogni passo aspetta la pagina più stretta (il fatto), non un tempo; tornando allo zoom di prima, la larghezza di prima.
+  const larghezzaDiPrima = (await foto())?.disegno.larghezzaPagina ?? 0;
   let passi = 0;
-  for (; passi < 6 && ((await foto())?.disegno.larghezzaPagina ?? 0) > 760; passi++) {
+  for (let larga = larghezzaDiPrima; passi < 6 && larga > 760; passi++) {
     await vscode.commands.executeCommand("workbench.action.zoomIn");
-    await pausa(600);
+    larga = (await aspetta((g) => g.disegno.larghezzaPagina < larga, 5000)).f?.disegno.larghezzaPagina ?? larga;
   }
-  await pausa(300);
   let f = null;
   try {
     f = (await vscode.commands.executeCommand("algo.prova.scorri")).fotografia;
@@ -73,7 +102,7 @@ async function aUnaColonna() {
     f = null;
   }
   await vscode.commands.executeCommand("workbench.action.zoomReset");
-  await pausa(600);
+  await aspetta((g) => g.disegno.larghezzaPagina === larghezzaDiPrima, 5000);
   return { passi, f };
 }
 
@@ -230,7 +259,8 @@ exports.run = async () => {
     ds.zoom.push({ comando: sel, scala: f?.disegno.scala, adattata: f?.disegno.adattata, sta: f?.disegno.staNelFoglio, nomi: f?.disegno.zoom });
   }
   ds.divisoreFunzioni = await foto("#divisore", { tasto: "ArrowRight" });
-  await pausa(300);
+  // La vista arrivata all'estensione prima di chiudere: è quella con cui il flowchart si riapre.
+  await aspettaLaVista();
   // Riaperti tutti e due: ciascuno con la sua vista.
   await vscode.commands.executeCommand("workbench.action.closeAllEditors");
   ds.erratoRiaperto = await apri(ALGO_ERRATO);
@@ -242,33 +272,34 @@ exports.run = async () => {
   const tp = (esiti.tenuta = {});
   if (!ds.funzioniRiaperto?.linguaggi.find((x) => x.nome === "C")?.attivo) await clic('[data-scelta="c"]');
   if (!(await foto())?.lingue[0]?.attivo) await clic('[data-scelta="it"]');
-  await pausa(400);
+  await aspetta((f) => !f.rigaInArrivo, 3000);
+  // Il codice va sulla riga della scheda in più tempi (subito, al fotogramma dopo, a caratteri pronti, poco dopo): si aspetta che
+  // abbia finito, non un tempo.
   await foto('[role=tab][data-funzione="f2"]');
-  tp.allaFunzione = (await aspetta((f) => f.funzioni[1]?.attiva === true, 3000)).f;
-  await pausa(400);
-  tp.allaFunzione = await foto();
+  tp.allaFunzione = (await aspetta((f) => f.funzioni[1]?.attiva === true && !f.rigaInArrivo, 3000)).f;
   await foto('[role=tab][data-funzione="f1"]');
-  await pausa(400);
-  tp.allaPrincipale = await foto();
+  tp.allaPrincipale = (await aspetta((f) => f.funzioni[0]?.attiva === true && !f.rigaInArrivo, 3000)).f;
   // --- La pagina che torna in primo piano: zoom, divisore e funzione cambiati, un'altra scheda nello stesso gruppo, e di nuovo la
   // pagina, rinata (un'altra nascita) e com'era.
   await foto('[role=tab][data-funzione="f2"]');
-  await pausa(300);
+  await aspetta((f) => f.funzioni[1]?.attiva === true && !f.rigaInArrivo, 3000);
   await foto("#zoom-ingrandisci");
   await foto("#divisore", { tasto: "ArrowRight" });
-  await pausa(400);
-  tp.prima = await foto();
+  // La vista arrivata all'estensione e il codice fermo: solo allora si cambia scheda.
+  tp.prima = await aspettaLaVista();
   await vscode.commands.executeCommand("workbench.action.keepEditor");
   const altra = join(dirname(ALGO_FILE), "altra scheda.txt");
   writeFileSync(altra, "un'altra scheda nello stesso gruppo\n");
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(altra), { preview: false, viewColumn: vscode.ViewColumn.Active });
-  await pausa(800);
+  for (let i = 0; i < 100 && vistaAttiva().tipo !== "testo"; i++) await pausa(50);
   tp.altraAttiva = vistaAttiva().tipo;
   tp.gruppi = vscode.window.tabGroups.all.length;
   await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(ALGO_FUNZIONI));
-  tp.tornata = (await aspetta((f) => f.nascita !== tp.prima?.nascita && f.versione > 0 && f.titolo !== "", 20000)).f;
-  await pausa(600);
-  tp.tornata = (await foto()) ?? tp.tornata;
+  // La pagina rinata (un'altra nascita), di quel file, col codice fermo sulla sua riga; poi, al più per tre secondi, la riga di
+  // prima in cima (la pagina che si dispone dopo, il riquadro che cambia misura): se non ci arriva, l'ultima fotografia lo dice.
+  const rinata = (f, r) => stessoFile(r?.uri, ALGO_FUNZIONI) && f.nascita !== tp.prima?.nascita && f.versione > 0 && f.titolo !== "" && !f.rigaInArrivo;
+  await aspetta(rinata, 20000);
+  tp.tornata = (await aspetta((f, r) => rinata(f, r) && f.rigaInCima === tp.prima?.rigaInCima, 3000)).f;
 
   // Controllo positivo del pacchetto nella pagina: un byte in più nel file del nucleo dell'estensione, la pagina riaperta non lo
   // esegue (l'impronta non torna); rimesso il file, sì.
@@ -370,7 +401,8 @@ exports.run = async () => {
   n = await domande();
   await rispondi([null]);
   await foto("#salva-codice");
-  await pausa(1500);
+  // La domanda arrivata alla finestra (il fatto), non un tempo; poi la pagina com'è.
+  for (let i = 0; i < 100 && (await domande()) === n; i++) await pausa(50);
   sv.uguale = await foto();
   sv.finestreConUguale = (await domande()) - n;
   sv.scrittoDopoAnnulla = leggi(fileC);
@@ -390,7 +422,7 @@ exports.run = async () => {
   n = await domande();
   await rispondi([null]);
   await foto("#salva-codice");
-  await pausa(1000);
+  for (let i = 0; i < 100 && (await domande()) === n; i++) await pausa(50);
   sv.domandaPython = (await vscode.commands.executeCommand("algo.prova.dialogo")).domande.slice(n);
 
   // 6. In un'altra cartella: la pagina dice il percorso intero.

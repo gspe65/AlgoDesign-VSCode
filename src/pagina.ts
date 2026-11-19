@@ -286,9 +286,10 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     this.attiva()?.manda({ tipo: "prova", prova: p });
   }
 
-  /** Per la prova con l'editor: ciò che la pagina attiva mostra, letto dal suo DOM; con `selettore`, prima un clic lì. */
-  fotografia(selettore?: string, tasto?: { tasto: string; maiuscolo?: boolean }): Promise<{ uri: string; fotografia: Fotografia | null }> {
-    return this.chiedi((id) => (selettore === undefined ? { tipo: "fotografia", id } : tasto === undefined ? { tipo: "clic", id, selettore } : { tipo: "tasto", id, selettore, tasto: tasto.tasto, maiuscolo: tasto.maiuscolo === true })).then(({ uri, risposta }) => ({ uri, fotografia: risposta as Fotografia | null }));
+  /** Per la prova con l'editor: ciò che la pagina attiva mostra, letto dal suo DOM; con `selettore`, prima un clic lì. Con la
+   *  vista che l'estensione ricorda per quel flowchart (quella con cui la pagina si riaprirebbe ora). */
+  fotografia(selettore?: string, tasto?: { tasto: string; maiuscolo?: boolean }): Promise<{ uri: string; fotografia: Fotografia | null; vistaRicordata: Vista }> {
+    return this.chiedi((id) => (selettore === undefined ? { tipo: "fotografia", id } : tasto === undefined ? { tipo: "clic", id, selettore } : { tipo: "tasto", id, selettore, tasto: tasto.tasto, maiuscolo: tasto.maiuscolo === true })).then(({ uri, risposta }) => ({ uri, fotografia: risposta as Fotografia | null, vistaRicordata: this.vista(vscode.Uri.parse(uri)) }));
   }
 
   /** Per la prova con l'editor: la pagina attiva scorsa fino in fondo, e ciò che mostra dopo. */

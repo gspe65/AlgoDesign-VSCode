@@ -504,6 +504,8 @@ function disegna(s: Stato): void {
   osservatoreDellaBarra.observe(scelte);
   osservatoreSopraIlCodice.disconnect();
   osservatoreSopraIlCodice.observe(testata);
+  osservatoreDelCodice.disconnect();
+  if (pre !== null) osservatoreDelCodice.observe(pre);
   const colonnaDestra = document.querySelector(".destra");
   if (colonnaDestra !== null) osservatoreSopraIlCodice.observe(colonnaDestra);
   if (!chiuso && schedaAttiva !== null) {
@@ -565,11 +567,30 @@ function portaSullaRiga(riga: number): void {
     // Al bordo dell'area visibile, non sotto il margine interno: lì si vedrebbe un pezzo della riga sopra.
     pre.scrollTop += r.getBoundingClientRect().top - pre.getBoundingClientRect().top - pre.clientTop;
   };
+  // I tre ritorni ancora da fare: finché ce n'è uno, la riga non è ancora al suo posto (la fotografia lo dice).
+  posizionamentiInCorso += 3;
+  const eFatto = () => {
+    vai();
+    posizionamentiInCorso--;
+  };
   vai();
-  requestAnimationFrame(vai);
-  void document.fonts.ready.then(vai);
-  setTimeout(vai, 300);
+  requestAnimationFrame(eFatto);
+  void document.fonts.ready.then(eFatto);
+  setTimeout(eFatto, 300);
 }
+let posizionamentiInCorso = 0;
+
+/** La riga ricordata resta in cima quando il codice cambia misura (il divisore, la finestra, il riquadro che si chiude): le righe
+ *  vanno a capo in un altro modo, e lo stesso scorrimento in pixel mostrava un'altra riga, mentre la riga ricordata restava quella
+ *  di prima (nessuno scorrimento la aggiornava). Tornando alla pagina da un'altra scheda, il codice poteva così tornare su una
+ *  riga diversa da quella che si vedeva (visto in una corsa delle Actions: 38 invece di 40, dopo un passo del divisore). */
+const osservatoreDelCodice = new ResizeObserver(() => {
+  const pre = document.getElementById("codice");
+  if (pre === null || rigaRicordata === null || codiceMostrato === "" || rigaRicordata.codice !== improntaCorta(codiceMostrato)) return;
+  const r = pre.children[rigaRicordata.riga - 1];
+  if (r === undefined) return;
+  pre.scrollTop += r.getBoundingClientRect().top - pre.getBoundingClientRect().top - pre.clientTop;
+});
 
 // Il foglio che cambia misura (la finestra, il divisore, le segnalazioni accanto) ricalcola la scala adattata. Si osserva il
 // foglio stesso, nel suo ingombro: osservare la pagina non basta (misurato nell'editor vero: il foglio si accorciava dopo il primo
@@ -743,6 +764,7 @@ function fotografia(): Fotografia {
       riga: document.getElementById("salvato")?.textContent ?? null,
     },
     scelta: stato?.scelta ?? null,
+    rigaInArrivo: posizionamentiInCorso > 0,
     versione: stato?.versione ?? -1,
   };
 }
