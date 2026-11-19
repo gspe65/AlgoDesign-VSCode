@@ -1,5 +1,5 @@
-// VSCodium per le prove con l'editor: la versione fissata qui, scaricata dalla release di VSCodium per il sistema su cui gira,
-// confrontata con l'impronta scritta qui ed estratta. Scrive il percorso dell'eseguibile, e con --uscita lo mette in quel file
+// VSCodium per le prove con l'editor: la versione fissata in versione-vscodium.ts (la legge anche la nota della release),
+// scaricata dalla release di VSCodium per il sistema su cui gira, confrontata con l'impronta scritta qui ed estratta. Scrive il percorso dell'eseguibile, e con --uscita lo mette in quel file
 // come `editor=<percorso>` (il file delle uscite di un passo delle Actions).
 //
 //   bun strumenti/vscodium.ts --cartella <dove> [--uscita <file>]
@@ -12,8 +12,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statS
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { esegui, fermo, impronta, rosso } from "./comune";
+import { VERSIONE } from "./versione-vscodium";
 
-export const VERSIONE = "1.143.17232";
 /** Un file per sistema, con l'impronta pubblicata da VSCodium accanto a ciascun file della release. */
 const PER_SISTEMA: Record<string, { file: string; sha256: string }> = {
   win32: { file: `VSCodium-win32-x64-${VERSIONE}.zip`, sha256: "a1090868af8ac0ac04c22d79fdd02246fa115a78daf38a741d8db06df1753c1d" },

@@ -2,8 +2,6 @@
 
 Un'estensione per VSCodium e Visual Studio Code che apre i flowchart di [AlgoDesign](https://github.com/gilan65/AlgoDesign) (i file `.algo`) in una pagina in sola lettura, col disegno, il codice generato e gli errori del flowchart.
 
-> **Versione di prova (0.0.9).** La pagina del flowchart col disegno e «Salva il codice come…». Il pacchetto è costruito dalle GitHub Actions.
-
 ## Che cosa fa
 
 Aprendo un file `.algo` (un clic nell'elenco dei file) si apre la **pagina del flowchart**:
@@ -32,17 +30,17 @@ codium --install-extension AlgoDesign-Code-<versione>.vsix
 
 ## Da dove viene il pacchetto
 
-Il pacchetto lo costruisce la corsa delle GitHub Actions di questo repository, a ogni etichetta, **una volta sola**. Lo stesso file viene provato con VSCodium 1.143.17232 su Windows, Ubuntu (con uno schermo virtuale) e macOS. La release si crea solo se le tre prove sono verdi, e il file porta un'attestazione della sua provenienza, che si verifica con:
+Il pacchetto lo costruisce la corsa delle GitHub Actions di questo repository, a ogni etichetta, **una volta sola**. Lo stesso file viene provato con VSCodium (la versione è scritta nella nota di ogni release) su Windows, Ubuntu (con uno schermo virtuale) e macOS. La release si crea solo se le prove sono verdi su Windows, Ubuntu e macOS; se GitHub non dà la macchina di uno dei sistemi, la release può uscire senza quel sistema, e la sua nota lo dice. Il file porta un'attestazione della sua provenienza, che si verifica con:
 
 ```
 gh attestation verify AlgoDesign-Code-<versione>.vsix -R gspe65/AlgoDesign-VSCode
 ```
 
-Il codice, gli errori e il disegno li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: in questa versione è costruito dai sorgenti di AlgoDesign all'etichetta `algodesign-core-contract-1.1`, con le opzioni del pacchetto di AlgoDesign, e confrontato con i byte e l'impronta sha256 scritti in `nucleo.json`. Quando AlgoDesign pubblicherà la release che lo contiene, si userà il file di quella release. La pagina esegue lo stesso file che usa l'estensione, e il browser dell'editor lo esegue solo se ha l'impronta di `nucleo.json`.
+Il codice, gli errori e il disegno li dà il nucleo di AlgoDesign, `algodesign-core.cjs`, non copiato in questo repository: è il file della release di AlgoDesign che `nucleo.json` nomina, confrontato con le impronte dello zip e del file scritte lì. La pagina esegue lo stesso file che usa l'estensione, e il browser dell'editor lo esegue solo se ha l'impronta di `nucleo.json`.
 
 ## Costruirla e provarla dai sorgenti
 
-Servono [Bun](https://bun.sh) 1.4.2 (la versione con cui il nucleo dà quei byte), git e la rete (la prima volta).
+Servono [Bun](https://bun.sh) 1.4.2, git e la rete (la prima volta).
 
 ```
 bun install --frozen-lockfile
@@ -52,7 +50,7 @@ bun prove/prova.ts
 bun prove/prova.ts --editor <percorso dell'eseguibile di VSCodium>
 ```
 
-`bun run nucleo` prende i sorgenti di AlgoDesign all'etichetta (servono anche per i tipi, l'icona e i file di prova) e ne costruisce il nucleo; `bun run costruisci` scrive in `dist/` l'estensione, la pagina e il pacchetto. `bun prove/prova.ts` prova il pacchetto e la logica senza aprire nulla; con `--editor` apre l'editor indicato per pochi secondi, con un profilo temporaneo, e prova la pagina dentro.
+`bun run nucleo` scarica il file del nucleo dalla release di AlgoDesign e ne confronta le impronte, e prende i sorgenti all'etichetta per i tipi, l'icona e i file di prova; `bun run costruisci` scrive in `dist/` l'estensione, la pagina e il pacchetto. `bun prove/prova.ts` prova il pacchetto e la logica senza aprire nulla; con `--editor` apre l'editor indicato per pochi secondi, con un profilo temporaneo, e prova la pagina dentro.
 
 ## Licenza
 

@@ -12,7 +12,7 @@ import { basename, join } from "node:path";
 import * as vscode from "vscode";
 import { LINGUA_INIZIALE, LINGUAGGIO_INIZIALE, linguaggiOfferti, modelloDelFile, riempi, testiDellInterfaccia, type Libreria, type LinguaDellInterfaccia, type Lettura } from "./documento";
 import type { DallaPagina, Fotografia, Prova, Scelta, Stato, VersoLaPagina, Vista } from "./messaggi";
-import { inOrdine } from "./ordine";
+import { aggiornamentiInOrdine } from "./ordine";
 import { altroNome, confronto, estensioneDel, nomeDelCodice } from "./salva";
 import { coloriDelTema } from "./tema";
 import { valida } from "./vista";
@@ -50,7 +50,7 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
 
   constructor(
     private readonly contesto: vscode.ExtensionContext,
-    /** Null se il file del nucleo non ha i byte e l'impronta dichiarati: la pagina lo dice, e non lo si esegue. */
+    /** Null se il file del nucleo non ha l'impronta dichiarata: la pagina lo dice, e non lo si esegue. */
     private readonly libreria: Libreria | null,
     private readonly problemi: vscode.DiagnosticCollection,
     /** Il registro «AlgoDesign» del pannello «Output»: i motivi tecnici, che sullo schermo non vanno. */
@@ -135,28 +135,25 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
     // La vista ricordata, tenuta al passo con quella che la pagina manda: quando la scheda torna in primo piano la pagina rinasce
     // e riceve l'ultimo stato (ma prima rilegge il suo, salvato nella pagina stessa).
     let vista = this.vista(uri);
-    const ordine = inOrdine();
     const aperta: Aperta = {
       uri,
       pannello,
       attese: new Map(),
       manda: (m) => void w.postMessage(m),
-      aggiorna: async () => {
-        // Numerato all'inizio: un aggiornamento superato da uno cominciato dopo (la lettura del disco è un'attesa) non arriva
-        // alla pagina, che non torna mai a uno stato più vecchio.
-        const numero = ordine.comincia();
+      // Numerato all'inizio: un aggiornamento superato da uno cominciato dopo (la lettura del disco è un'attesa) non arriva alla
+      // pagina, che non torna mai a uno stato più vecchio.
+      aggiorna: aggiornamentiInOrdine(async (): Promise<Lettura> => {
+        try {
+          return { testo: Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8") };
+        } catch (e) {
+          // Un file che non c'è più (cancellato o in mezzo a un salvataggio) o che il sistema non lascia leggere.
+          return { errore: e instanceof Error ? e.message : String(e) };
+        }
+      }, (lettura) => {
         const offerti = linguaggiOfferti(vscode.workspace.getConfiguration("algo").get<boolean>("pseudocodifica", false));
         const scelta = this.scelta(uri, offerti);
         const interfaccia = this.interfaccia();
         const testi = testiDellInterfaccia(interfaccia);
-        let lettura: Lettura;
-        try {
-          lettura = { testo: Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8") };
-        } catch (e) {
-          // Un file che non c'è più (cancellato o in mezzo a un salvataggio) o che il sistema non lascia leggere.
-          lettura = { errore: e instanceof Error ? e.message : String(e) };
-        }
-        if (ordine.superato(numero)) return;
         const { modello: m, eccezione } = modelloDelFile(this.libreria, lettura, scelta.linguaggio, scelta.lingua, interfaccia, basename(uri.fsPath));
         if (eccezione !== null) this.registro.error(`il nucleo si è fermato leggendo ${uri.fsPath}: ${eccezione}`);
         if ("errore" in lettura) this.registro.warn(`${uri.fsPath} non si legge dal disco: ${lettura.errore}`);
@@ -181,7 +178,7 @@ export class Pagina implements vscode.CustomReadonlyEditorProvider {
           versione: ++this.versione,
         };
         if (pronta) aperta.manda({ tipo: "stato", stato: ultimo });
-      },
+      }),
     };
     this.aperte.add(aperta);
 

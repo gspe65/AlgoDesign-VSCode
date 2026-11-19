@@ -105,10 +105,12 @@ export type Fotografia = {
   /** «Apri il file come testo»: il testo del pulsante e il suo suggerimento. */
   readonly pulsanteDelTesto: { readonly testo: string; readonly suggerimento: string } | null;
   /** Il codice che va a capo: le righe che occupano più di una riga sullo schermo, se c'è uno scorrimento orizzontale, e per la
-   *  prima riga a capo dove comincia il suo testo (il primo carattere non bianco) e dove comincia il seguito, in pixel. */
-  readonly aCapo: { readonly righe: number; readonly larghezza: number; readonly larghezzaVisibile: number; readonly rientro: { readonly inizio: number; readonly seguito: number } | null };
-  /** La barra sopra il codice (linguaggio, lingua, salvataggio) e il riquadro del codice, in pixel dalla cima della finestra. */
-  readonly colonna: { readonly barra: number; readonly barraSenzaAggancio: number; readonly riquadro: number; readonly altezzaDelCodice: number; readonly altezzaDellaFinestra: number; readonly scorrimento: number };
+   *  prima riga a capo dove comincia il suo testo (il primo carattere non bianco) e dove comincia il seguito, in pixel; `tetto`:
+   *  il rientro del seguito di una riga rientrata di 400 caratteri, e la larghezza del codice. */
+  readonly aCapo: { readonly righe: number; readonly larghezza: number; readonly larghezzaVisibile: number; readonly rientro: { readonly inizio: number; readonly seguito: number } | null; readonly tetto: { readonly sospeso: number; readonly larghezza: number } | null };
+  /** La barra sopra il codice (linguaggio, lingua, salvataggio) e il riquadro del codice, in pixel dalla cima della finestra;
+   *  `fondoDelCodice` dalla cima della pagina. */
+  readonly colonna: { readonly barra: number; readonly barraSenzaAggancio: number; readonly altezzaDellaBarra: number; readonly riquadro: number; readonly altezzaDelCodice: number; readonly fondoDelCodice: number; readonly altezzaDellaFinestra: number; readonly scorrimento: number };
   readonly editabili: number;
   /** L'elemento col fuoco: il suo id, o il valore della sua scelta, o il nome del tag. */
   readonly fuoco: string;
@@ -126,8 +128,9 @@ export type Fotografia = {
   readonly versione: number;
 };
 
-/** Solo per la prova: la misura fissa (quella della conformità, al posto del canvas) e un carattere diverso da chiedere. */
-export type Prova = { readonly misuraFissa: boolean; readonly carattere: string | null };
+/** Solo per la prova: la misura fissa (quella della conformità, al posto del canvas), un carattere diverso da chiedere, e il nucleo
+ *  della pagina che si ferma (un'eccezione) aprendo il flowchart o disegnandolo. */
+export type Prova = { readonly misuraFissa: boolean; readonly carattere: string | null; readonly fermo?: "apri" | "disegna" };
 
 export type VersoLaPagina =
   | { readonly tipo: "stato"; readonly stato: Stato }

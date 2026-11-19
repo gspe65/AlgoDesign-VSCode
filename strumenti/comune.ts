@@ -27,27 +27,42 @@ export function impronta(dati: Uint8Array): string {
   return createHash("sha256").update(dati).digest("hex");
 }
 
-/** Il nucleo che l'estensione usa, in uno di due modi: il file della release di AlgoDesign (`zip` e `file`), o il file costruito
- *  dai sorgenti all'etichetta (`costruzione`), quando l'etichetta non ha una release. In tutti e due i sorgenti al commit
- *  dell'etichetta danno i tipi, l'icona e i file di prova. `licenza` è un percorso nello zip, o nei sorgenti. */
+/** Il nucleo che l'estensione usa: il file della release di AlgoDesign (`zip` e `file`, con le loro impronte), e i sorgenti al
+ *  commit dell'etichetta, che danno i tipi, l'icona e i file di prova. `licenza` è un percorso nello zip. */
 export type Nucleo = {
   etichetta: string;
   repository: string;
   commit: string;
-  zip?: { indirizzo: string; nome: string; sha256: string };
-  file?: { percorso: string; sha256: string };
-  costruzione?: { bun: string; byte: number; sha256: string };
+  zip: { indirizzo: string; nome: string; sha256: string };
+  file: { percorso: string; sha256: string };
   licenza: string;
   sorgenti: { punto_ingresso: string; punto_ingresso_sha256: string; icona: string; icona_sha256: string; casi: string };
 };
 
-export const NUCLEO = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8")) as Nucleo;
-if ((NUCLEO.costruzione === undefined) === (NUCLEO.zip === undefined || NUCLEO.file === undefined))
-  fermo("nucleo.json vuole uno dei due modi: zip e file della release, oppure costruzione dai sorgenti");
-/** L'impronta che il file del nucleo deve avere, nell'uno o nell'altro modo. */
-export const IMPRONTA_DEL_NUCLEO: string = NUCLEO.costruzione?.sha256 ?? NUCLEO.file!.sha256;
-/** I byte che il file del nucleo deve avere: dichiarati nel modo della costruzione; null nel modo della release (lì vale l'impronta). */
-export const BYTE_DEL_NUCLEO: number | null = NUCLEO.costruzione?.byte ?? null;
+const CHIAVI_DEL_NUCLEO = ["commit", "etichetta", "file", "licenza", "repository", "sorgenti", "zip"];
+const IMPRONTA = /^[0-9a-f]{64}$/;
+/** I motivi per cui il contenuto di nucleo.json non dichiara il file di una release; vuoto se lo dichiara. Il nucleo si prende
+ *  solo dal file di una release: una chiave in più (come un modo di costruirlo dai sorgenti) è un motivo, col suo nome. */
+export function motiviDelNucleo(n: unknown): string[] {
+  if (typeof n !== "object" || n === null || Array.isArray(n)) return ["nucleo.json non è un oggetto"];
+  const o = n as Record<string, unknown>;
+  const motivi: string[] = [];
+  const chiavi = differenze(Object.keys(o), CHIAVI_DEL_NUCLEO);
+  for (const c of chiavi.soloA) motivi.push(`nucleo.json ha la chiave «${c}», che non si usa: il nucleo si prende solo dal file di una release (zip e file)`);
+  for (const c of chiavi.soloB) motivi.push(`nucleo.json non ha la chiave «${c}»`);
+  const zip = o["zip"] as Record<string, unknown> | undefined;
+  const file = o["file"] as Record<string, unknown> | undefined;
+  if (zip !== undefined && (typeof zip["indirizzo"] !== "string" || typeof zip["nome"] !== "string" || !IMPRONTA.test(String(zip["sha256"])))) motivi.push("nucleo.json: «zip» vuole indirizzo, nome e un'impronta sha256");
+  if (file !== undefined && (typeof file["percorso"] !== "string" || !IMPRONTA.test(String(file["sha256"])))) motivi.push("nucleo.json: «file» vuole il percorso nello zip e un'impronta sha256");
+  return motivi;
+}
+
+const nucleoLetto: unknown = JSON.parse(readFileSync(join(RADICE, "nucleo.json"), "utf8"));
+const motiviDiNucleoJson = motiviDelNucleo(nucleoLetto);
+if (motiviDiNucleoJson.length > 0) rosso(motiviDiNucleoJson.join("; "));
+export const NUCLEO = nucleoLetto as Nucleo;
+/** L'impronta che il file del nucleo deve avere. */
+export const IMPRONTA_DEL_NUCLEO: string = NUCLEO.file.sha256;
 /** Dove `bun run nucleo` mette ciò che scarica (cartella ignorata). */
 export const CARTELLA_DEL_NUCLEO = join(RADICE, "nucleo");
 export const FILE_DEL_NUCLEO = join(CARTELLA_DEL_NUCLEO, "algodesign-core.cjs");

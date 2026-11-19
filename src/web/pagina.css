@@ -66,12 +66,16 @@ button.primario:hover { background: var(--vscode-button-hoverBackground); }
 button.perde { color: var(--vscode-errorForeground); border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground)); }
 .segno-avviso { font-weight: 700; }
 [role=radio][aria-checked=true] { color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-weight: 600; }
-pre#codice { margin: 0; height: calc(100vh - 160px); min-height: 200px; overflow: auto; padding: 6px 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); line-height: 1.45; border: 1px solid var(--vscode-panel-border, transparent); }
+/* A due colonne il codice arriva al fondo della finestra: la sua altezza è la finestra meno ciò che gli sta sopra
+   (--sopra-il-codice, misurato dalla pagina: la testata e la barra vanno a capo quando la pagina è stretta) e il margine in basso. */
+pre#codice { container-type: inline-size; margin: 0; height: calc(100vh - var(--sopra-il-codice, 160px) - 12px); min-height: 200px; overflow: auto; padding: 6px 0; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); line-height: 1.45; border: 1px solid var(--vscode-panel-border, transparent); }
 /* Una riga che non ci sta va a capo (niente scorrimento orizzontale), e il seguito parte quattro caratteri più a destra del
-   rientro della riga (--rientro, in caratteri, messo dalla pagina): la prima riga resta dov'è, col suo rientro scritto in spazi. */
+   rientro della riga (--rientro, in caratteri, messo dalla pagina): la prima riga resta dov'è, col suo rientro scritto in spazi.
+   Il rientro del seguito ha un tetto, il 40% della larghezza del riquadro del codice (cqi, che conta anche la barra di
+   scorrimento): una riga molto rientrata in un riquadro stretto lascia al seguito almeno metà della larghezza visibile. */
 .riga { display: flex; }
 .riga .n { flex: none; width: 4ch; padding-right: 1.5ch; text-align: right; color: var(--vscode-editorLineNumber-foreground); user-select: none; white-space: pre; }
-.riga .t { --rientro: 0; display: block; flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: calc((var(--rientro) + 4) * 1ch); text-indent: calc((var(--rientro) + 4) * -1ch); }
+.riga .t { --rientro: 0; --sospeso: min(calc((var(--rientro) + 4) * 1ch), 40cqi); display: block; flex: 1 1 auto; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; padding-left: var(--sospeso); text-indent: calc(-1 * var(--sospeso)); }
 .assente { padding: 10px; border: 1px solid var(--vscode-panel-border, currentColor); }
 .k-commento { color: var(--k-commento); } .k-parolaChiave { color: var(--k-parolaChiave); } .k-tipo { color: var(--k-tipo); }
 .k-stringa { color: var(--k-stringa); } .k-numero { color: var(--k-numero); } .k-funzione { color: var(--k-funzione); }
